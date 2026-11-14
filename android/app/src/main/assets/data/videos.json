@@ -174,5 +174,148 @@
     "lon": 1.45,
     "date": "1980-12-28",
     "note": "The unedited cassette Lt. Col. Charles Halt recorded in the forest on the second night, with radiation readings and lights reported in real time."
+  },
+  {
+    "videoId": "6rWOtrke0HY",
+    "title": "FLIR1: Official UAP Footage from the USG for Public Release",
+    "channel": "To The Stars Academy of Arts & Science",
+    "place": "Off San Diego, California",
+    "lat": 32.72,
+    "lon": -117.62,
+    "date": "2004-11-14",
+    "note": "The 2004 Nimitz \"Tic Tac\" clip, released by the Pentagon in 2020. The object has never been identified.",
+    "n": 17
+  },
+  {
+    "videoId": "wxVRg7LLaQA",
+    "title": "Go Fast: Official USG Footage of UAP for Public Release",
+    "channel": "To The Stars Academy of Arts & Science",
+    "place": "Atlantic Ocean off Florida",
+    "lat": 29.5,
+    "lon": -79.5,
+    "date": "2015-01-21",
+    "note": "Official Navy ATFLIR clip from a 2015 training exercise. AARO later attributed the apparent speed to parallax.",
+    "n": 18
+  },
+  {
+    "videoId": "GIqIRXgQcC4",
+    "title": "UFO/UAP Orb Footage STS-48 space shuttle Discovery",
+    "channel": "Michelle Asjes",
+    "place": "Low Earth orbit",
+    "lat": null,
+    "lon": null,
+    "date": "1991-09-15",
+    "note": "Discovery's cargo-bay camera films a bright object changing direction after a flash. NASA attributed it to ice particles and thruster firings.",
+    "n": 19
+  },
+  {
+    "videoId": "q8pymWSKAPQ",
+    "title": "Children talk about witnessing the 1994 UFO landing at the Ariel School",
+    "channel": "Eyes On Cinema",
+    "place": "Ruwa, Zimbabwe",
+    "lat": -17.889,
+    "lon": 31.245,
+    "date": "1994-09-16",
+    "note": "62 children at a Zimbabwe school described a landed silver craft and a figure during morning break. Interviews were filmed days later.",
+    "n": 20
+  },
+  {
+    "videoId": "mPbDa5D7IUE",
+    "title": "The Shag Harbour UFO Incident - Full Documentary",
+    "channel": "Ocean Digital Entertainment",
+    "place": "Shag Harbour, Nova Scotia",
+    "lat": 43.496,
+    "lon": -65.706,
+    "date": "1967-10-04",
+    "note": "A lit object descended into the water off Nova Scotia. The coast guard and RCMP searched without finding debris.",
+    "n": 21
+  },
+  {
+    "videoId": "m_eoMSI1KNU",
+    "title": "Extraordinary 1976 UFO incident in Tehran, Iran",
+    "channel": "Eyes On Cinema",
+    "place": "Tehran, Iran",
+    "lat": 35.689,
+    "lon": 51.389,
+    "date": "1976-09-18",
+    "note": "An Iranian F-4 crew reported a bright object that jammed instruments and released a smaller craft.",
+    "n": 22
+  },
+  {
+    "videoId": "Np5wvh-PsR4",
+    "title": "Operação Prato: UFO encounters investigated by the Brazilian Air Force",
+    "channel": "Eyes On Cinema",
+    "place": "Colares, Brazil",
+    "lat": -0.863,
+    "lon": -48.281,
+    "date": "1977-11-01",
+    "note": "Brazil's Air Force investigated lights and attacks on villagers around Colares in 1977-78.",
+    "n": 23
+  },
+  {
+    "videoId": "zp7xw57xiUM",
+    "title": "Mystery Wire - Pyramid UFO swarm over Navy destroyer",
+    "channel": "Mystery Wire",
+    "place": "Off San Diego, California",
+    "lat": 32.72,
+    "lon": -117.62,
+    "date": "2019-07-15",
+    "note": "Night-vision footage from USS Russell. AARO says the \"pyramid\" look comes from defocused point lights.",
+    "n": 24
+  },
+  {
+    "videoId": "hpyCIaw-CL4",
+    "title": "UFO fleet with FLIR by Mexican Air Force pilots over Campeche",
+    "channel": "Luis Andrés Jaspersen Revilla",
+    "place": "Campeche, Mexico",
+    "lat": 19.83,
+    "lon": -90.53,
+    "date": "2004-03-05",
+    "note": "Eleven heat sources filmed by a Mexican Air Force crew. Analysts later linked them to offshore oil-platform flares.",
+    "n": 25
+  },
+  {
+    "videoId": "MltYE53a_Po",
+    "title": "'Jellyfish' UFO clip: expert on the Iraq UAP video",
+    "channel": "NewsNation",
+    "place": "Over Iraq",
+    "lat": 33.3,
+    "lon": 43.7,
+    "date": "2023-01-01",
+    "note": "A clip said to show a jellyfish-shaped object over a US base in Iraq. Date, place and source remain unverified.",
+    "n": 26
+  },
+  {
+    "videoId": "D3qWyN8rxzw",
+    "title": "1966 UFO Sightings in Dexter, Michigan - A Mini-Documentary",
+    "channel": "Michigan Online",
+    "place": "Dexter, Michigan",
+    "lat": 42.33,
+    "lon": -83.89,
+    "date": "1966-03-25",
+    "note": "The \"swamp gas\" flap that pushed J. Allen Hynek into the national spotlight in March 1966.",
+    "n": 27
+  },
+  {
+    "videoId": "T64jReeun3A",
+    "title": "School kids on witnessing a landed UFO at Broad Haven, Wales",
+    "channel": "Eyes On Cinema",
+    "place": "Broad Haven, Wales",
+    "lat": 51.781,
+    "lon": -5.103,
+    "date": "1977-02-04",
+    "note": "Schoolchildren described a silver domed craft in a field. Their matching drawings made it a landmark Welsh case.",
+    "n": 28
+  },
+  {
+    "videoId": "9zTUspQlS8E",
+    "title": "The Alien Abduction: Pascagoula man says he had an encounter with aliens",
+    "channel": "FOX10 News",
+    "place": "Pascagoula, Mississippi",
+    "lat": 30.366,
+    "lon": -88.556,
+    "date": "1973-10-11",
+    "note": "Charles Hickson and Calvin Parker said they were taken aboard a craft while fishing in 1973.",
+    "n": 29
   }
 ]
