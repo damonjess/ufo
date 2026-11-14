@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "data": "node scripts/prepare-data.mjs",
+    "fetch:tiktok": "node scripts/fetch-tiktok-ufo.mjs",
     "android:sync": "npm run build && cap sync android",
     "android:open": "cap open android"
   },

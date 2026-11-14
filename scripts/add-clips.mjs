@@ -112,6 +112,15 @@ for (const raw of lines) {
 fs.writeFileSync(SOCIAL, JSON.stringify(social, null, 2) + "\n");
 fs.writeFileSync(VIDEOS, JSON.stringify(videos, null, 2) + "\n");
 
+const ANDROID_SOCIAL = "android/app/src/main/assets/data/social.json";
+const ANDROID_VIDEOS = "android/app/src/main/assets/data/videos.json";
+if (fs.existsSync(ANDROID_SOCIAL)) {
+  fs.writeFileSync(ANDROID_SOCIAL, JSON.stringify(social, null, 2) + "\n");
+}
+if (fs.existsSync(ANDROID_VIDEOS)) {
+  fs.writeFileSync(ANDROID_VIDEOS, JSON.stringify(videos, null, 2) + "\n");
+}
+
 console.log(`added ${added.tiktok} TikTok + ${added.youtube} YouTube`);
 if (skipped.length) console.log(`skipped ${skipped.length} already in the archive`);
 if (failed.length) {
