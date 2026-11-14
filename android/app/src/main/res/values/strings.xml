@@ -58,6 +58,10 @@
     <string name="timeline_clear_hint">Year %1$d. Tap to clear the timeline.</string>
     <string name="timeline_desc">Timeline of reports per year</string>
     <string name="timeline_all">All years</string>
+    <string name="show_reports">List</string>
+    <string name="show_globe">Globe</string>
+    <string name="show_reports_desc">Show the report list</string>
+    <string name="show_globe_desc">Hide the report list and show the globe</string>
     <string name="speed_1x">1×</string>
     <string name="speed_4x">4×</string>
     <string name="on_this_day">On this day</string>

@@ -405,6 +405,24 @@
                 android:paddingBottom="5dp"
                 android:text="@string/speed_1x"
                 android:textSize="9sp" />
+
+            <TextView
+                android:id="@+id/panelToggle"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:layout_marginStart="4dp"
+                android:background="?attr/selectableItemBackground"
+                android:contentDescription="@string/show_reports_desc"
+                android:fontFamily="monospace"
+                android:gravity="center"
+                android:letterSpacing="0.08"
+                android:minWidth="48dp"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp"
+                android:text="@string/show_reports"
+                android:textAllCaps="true"
+                android:textColor="@color/mint"
+                android:textSize="8.5sp" />
         </LinearLayout>
 
         <LinearLayout

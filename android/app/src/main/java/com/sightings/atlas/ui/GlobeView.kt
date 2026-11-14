@@ -218,6 +218,8 @@ class GlobeView @JvmOverloads constructor(
     private var pinchUsed = false
     private var lastX = 0f
     private var lastY = 0f
+    private var downX = 0f
+    private var downY = 0f
     private var pinchStartDist = 1f
     private var pinchStartZoom = 1.0
     private var pinchMidX = 0f
@@ -1478,6 +1480,8 @@ class GlobeView @JvmOverloads constructor(
                 dragging = true
                 moved = false
                 pinchUsed = false
+                downX = event.x
+                downY = event.y
                 lastX = event.x
                 lastY = event.y
                 pinchMidX = event.x
@@ -1554,6 +1558,17 @@ class GlobeView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_UP -> {
+                // A fast flick can lose its intermediate move events; treat the
+                // distance from the down point as a drag so it never turns into a tap.
+                val totalDx = event.x - downX
+                val totalDy = event.y - downY
+                if (!moved && !pinchUsed && abs(totalDx) + abs(totalDy) > touchSlop) {
+                    val degPerPx = (180.0 / (PI * radius.coerceAtLeast(1.0))).toFloat()
+                    lam += totalDx * degPerPx
+                    phi = (phi - totalDy * degPerPx).coerceIn(-85.0, 85.0)
+                    moved = true
+                    dirty = true
+                }
                 dragging = false
                 parent?.requestDisallowInterceptTouchEvent(false)
                 anchorGeo = null

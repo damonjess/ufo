@@ -89,6 +89,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var timelinePlay: TextView
     private lateinit var timelineYear: TextView
     private lateinit var timelineSpeed: TextView
+    private lateinit var panel: LinearLayout
+    private lateinit var panelToggle: TextView
     private lateinit var onThisDayButton: TextView
     private lateinit var statsButton: TextView
     private lateinit var nearMe: TextView
@@ -128,6 +130,7 @@ class MainActivity : AppCompatActivity() {
     private var hoverLon = Double.NaN
     private var hoverZoom = 1.0
     private var hoveringUk = false
+    private var panelOpen = false
 
     private val savedIds = HashSet<Int>()
     private val prefs by lazy { getSharedPreferences("atlas_prefs", Context.MODE_PRIVATE) }
@@ -140,6 +143,13 @@ class MainActivity : AppCompatActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_main)
         bindViews()
+        panelOpen = prefs.getBoolean(KEY_PANEL_OPEN, false)
+        panelToggle.setOnClickListener {
+            panelOpen = !panelOpen
+            prefs.edit().putBoolean(KEY_PANEL_OPEN, panelOpen).apply()
+            applyPanelState()
+        }
+        applyPanelState()
         savedIds.addAll(
             prefs.getStringSet(KEY_SAVED, emptySet()).orEmpty().mapNotNull { it.toIntOrNull() },
         )
@@ -184,6 +194,8 @@ class MainActivity : AppCompatActivity() {
         timelinePlay = findViewById(R.id.timelinePlay)
         timelineYear = findViewById(R.id.timelineYear)
         timelineSpeed = findViewById(R.id.timelineSpeed)
+        panel = findViewById(R.id.panel)
+        panelToggle = findViewById(R.id.panelToggle)
         timelineSpeed.contentDescription =
             getString(R.string.timeline_speed_value, getString(R.string.speed_1x))
         onThisDayButton = findViewById(R.id.onThisDay)
@@ -364,6 +376,14 @@ class MainActivity : AppCompatActivity() {
         this.adapter = adapter
         list.adapter = adapter
         refresh()
+    }
+
+    private fun applyPanelState() {
+        panel.visibility = if (panelOpen) View.VISIBLE else View.GONE
+        panelToggle.text = getString(if (panelOpen) R.string.show_globe else R.string.show_reports)
+        panelToggle.contentDescription = getString(
+            if (panelOpen) R.string.show_globe_desc else R.string.show_reports_desc,
+        )
     }
 
     private fun updateTabs() {
@@ -1330,6 +1350,7 @@ class MainActivity : AppCompatActivity() {
 
     private companion object {
         const val KEY_SAVED = "saved_ids"
+        const val KEY_PANEL_OPEN = "panel_open"
         const val REQUEST_LOCATION = 41
     }
 }
