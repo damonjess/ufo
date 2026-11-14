@@ -60,7 +60,13 @@ class GlobeView @JvmOverloads constructor(
     attrs: AttributeSet? = null,
 ) : View(context, attrs) {
 
-    private data class Target(val lam: Double, val phi: Double, val start: Long)
+    private data class Target(
+        val startLam: Double,
+        val startPhi: Double,
+        val targetLam: Double,
+        val targetPhi: Double,
+        val start: Long,
+    )
 
     /** Land/border/graticule ring stored as unit vectors, with a bounding cap for culling. */
     private class Ring(
@@ -73,7 +79,15 @@ class GlobeView @JvmOverloads constructor(
         val sinR: Float,
     )
 
-    private class Label(val text: String, val x: Double, val y: Double, val z: Double, val weight: Int)
+    private class Label(
+        val text: String,
+        val x: Double,
+        val y: Double,
+        val z: Double,
+        val weight: Int,
+        val countryWidth: Float,
+        val cityWidth: Float,
+    )
 
     private class Pin(val sighting: Sighting, val x: Float, val y: Float, val z: Float, val era: Int)
 
@@ -87,42 +101,6 @@ class GlobeView @JvmOverloads constructor(
     ) {
         var x = 0f
         var y = 0f
-    }
-
-    private class IntIntMap(capacity: Int = 4096) {
-        private val keys = IntArray(capacity) { EMPTY_KEY }
-        private val values = IntArray(capacity)
-        private val mask = capacity - 1
-
-        fun clear() {
-            java.util.Arrays.fill(keys, EMPTY_KEY)
-        }
-
-        fun get(key: Int): Int {
-            var index = (key and 0x7FFFFFFF) and mask
-            while (keys[index] != EMPTY_KEY) {
-                if (keys[index] == key) return values[index]
-                index = (index + 1) and mask
-            }
-            return -1
-        }
-
-        fun put(key: Int, value: Int) {
-            var index = (key and 0x7FFFFFFF) and mask
-            while (keys[index] != EMPTY_KEY) {
-                if (keys[index] == key) {
-                    values[index] = value
-                    return
-                }
-                index = (index + 1) and mask
-            }
-            keys[index] = key
-            values[index] = value
-        }
-
-        private companion object {
-            const val EMPTY_KEY = Int.MIN_VALUE
-        }
     }
 
     private val density = resources.displayMetrics.density
@@ -151,7 +129,8 @@ class GlobeView @JvmOverloads constructor(
 
     private val clusterPool = Array(1000) { Cluster() }
     private var clusterCount = 0
-    private val clusterIndexMap = IntIntMap(4096)
+    private var clusterGrid = IntArray(1024)
+    private var heatCounts = IntArray(1024)
 
     private val labelRectPool = Array(64) { RectF() }
     private var occupiedCount = 0
@@ -177,7 +156,7 @@ class GlobeView @JvmOverloads constructor(
         set(value) {
             selectedSighting = value
             if (value != null && value.hasPosition) {
-                target = Target(-value.lon, (-value.lat).coerceIn(-72.0, 72.0), SystemClock.uptimeMillis())
+                target = Target(lam, phi, -value.lon, (-value.lat).coerceIn(-72.0, 72.0), SystemClock.uptimeMillis())
                 if (zoomTarget < 1.8) zoomTarget = 1.8
             }
             dirty = true
@@ -420,7 +399,7 @@ class GlobeView @JvmOverloads constructor(
 
     /** Eases the camera to a place, optionally making sure it is at least this deep. */
     fun flyTo(lat: Double, lon: Double, minZoom: Double = 1.8) {
-        target = Target(-lon, (-lat).coerceIn(-72.0, 72.0), SystemClock.uptimeMillis())
+        target = Target(lam, phi, -lon, (-lat).coerceIn(-72.0, 72.0), SystemClock.uptimeMillis())
         if (zoomTarget < minZoom) zoomTarget = minZoom
         dirty = true
         ensureFrames()
@@ -456,7 +435,7 @@ class GlobeView @JvmOverloads constructor(
     }
 
     fun resetView() {
-        target = Target(DEFAULT_LAM, DEFAULT_PHI, SystemClock.uptimeMillis())
+        target = Target(lam, phi, DEFAULT_LAM, DEFAULT_PHI, SystemClock.uptimeMillis())
         zoomTarget = 1.0
         flinging = false
         lamVelocity = 0.0
@@ -537,6 +516,8 @@ class GlobeView @JvmOverloads constructor(
             val lat = Math.toRadians(label.lat)
             val cosLat = cos(lat)
             val text = if (upper) label.name.uppercase(Locale.US) else label.name
+            val countryWidth = countryLabelPaint.measureText(text)
+            val cityWidth = cityLabelPaint.measureText(text)
             out.add(
                 Label(
                     text = text,
@@ -544,6 +525,8 @@ class GlobeView @JvmOverloads constructor(
                     y = cosLat * cos(lon),
                     z = sin(lat),
                     weight = label.weight,
+                    countryWidth = countryWidth,
+                    cityWidth = cityWidth,
                 ),
             )
         }
@@ -612,9 +595,12 @@ class GlobeView @JvmOverloads constructor(
         if (globeRadius <= 0f) return
 
         updateShaders(centerX, centerY, globeRadius)
-        atmoShader?.let {
-            atmoPaint.shader = it
-            canvas.drawCircle(centerX, centerY, globeRadius * 1.24f, atmoPaint)
+        val maxDim = max(w, h)
+        if (globeRadius * 1.24f < maxDim * 1.5f) {
+            atmoShader?.let {
+                atmoPaint.shader = it
+                canvas.drawCircle(centerX, centerY, globeRadius * 1.24f, atmoPaint)
+            }
         }
         oceanShader?.let {
             oceanPaint.shader = it
@@ -637,16 +623,18 @@ class GlobeView @JvmOverloads constructor(
             landStrokePaint.strokeWidth = (if (detailed) 0.75f else 0.7f) * density
             canvas.drawPath(landPath, landStrokePaint)
 
-            borderPath.reset()
-            buildPath(borderPath, if (detailed) bordersHigh else bordersLow)
-            borderPaint.color = if (detailed) 0x668FDDEA else 0x4D8FDDEA
-            borderPaint.strokeWidth = (if (detailed) 0.7f else 0.55f) * density
-            canvas.drawPath(borderPath, borderPaint)
-
             if (zoom < 5.0) {
                 graticulePath.reset()
                 buildPath(graticulePath, graticule)
                 canvas.drawPath(graticulePath, graticulePaint)
+            }
+
+            if (!autoRotate && !dragging && !flinging && target == null) {
+                borderPath.reset()
+                buildPath(borderPath, if (detailed) bordersHigh else bordersLow)
+                borderPaint.color = if (detailed) 0x668FDDEA else 0x4D8FDDEA
+                borderPaint.strokeWidth = (if (detailed) 0.7f else 0.55f) * density
+                canvas.drawPath(borderPath, borderPaint)
             }
         }
 
@@ -736,13 +724,15 @@ class GlobeView @JvmOverloads constructor(
         val sl = sinLam.toFloat()
         val cp = cosPhi.toFloat()
         val sp = sinPhi.toFloat()
-        val halfDiagonal = hypot(width / 2.0, height / 2.0)
+        val w = width.toFloat()
+        val h = height.toFloat()
+        val halfDiagonal = hypot(w / 2.0, h / 2.0)
         val viewAngle = if (radius > 0.0) asin(min(1.0, halfDiagonal / radius)) else PI / 2
         val cosV = cos(viewAngle).toFloat()
         val sinV = sin(viewAngle).toFloat()
 
         for (ring in rings) {
-            if (!ringPasses(ring, cl, sl, cp, sp, cosV, sinV)) continue
+            if (!ringPasses(ring, cl, sl, cp, sp, cosV, sinV, w, h)) continue
             appendRing(path, ring, cl, sl, cp, sp)
         }
     }
@@ -755,10 +745,22 @@ class GlobeView @JvmOverloads constructor(
         sp: Float,
         cosV: Float,
         sinV: Float,
+        w: Float,
+        h: Float,
     ): Boolean {
         val bc = ring.cy * cl + ring.cx * sl
         val z = sp * ring.cz + cp * bc
-        return z >= ring.cosR * cosV - ring.sinR * sinV
+        if (z < ring.cosR * cosV - ring.sinR * sinV) return false
+
+        val capX = ring.cx * cl - ring.cy * sl
+        val capY = cp * ring.cz - sp * bc
+        val capPx = cx + radius * capX
+        val capPy = cy - radius * capY
+        val margin = (radius * ring.sinR * 1.08 + 24.0)
+        if (capPx + margin < 0 || capPx - margin > w || capPy + margin < 0 || capPy - margin > h) {
+            return false
+        }
+        return true
     }
 
     private fun appendRing(path: Path, ring: Ring, cl: Float, sl: Float, cp: Float, sp: Float) {
@@ -843,15 +845,28 @@ class GlobeView @JvmOverloads constructor(
         val sp = sinPhi.toFloat()
 
         val clusterMode = !heatMode && zoom >= CLUSTER_MIN_ZOOM && zoom < CLUSTER_ZOOM
+        val cell = CLUSTER_CELL_DP * density
+        val cols = if (clusterMode) max(1, ceil((w + 2 * cell) / cell).toInt()) else 0
+        val rows = if (clusterMode) max(1, ceil((h + 2 * cell) / cell).toInt()) else 0
+        val totalCells = cols * rows
         if (clusterMode) {
             clusterCount = 0
-            clusterIndexMap.clear()
+            if (clusterGrid.size < totalCells) {
+                clusterGrid = IntArray(max(totalCells, clusterGrid.size * 2))
+            }
+            java.util.Arrays.fill(clusterGrid, 0, totalCells, -1)
         }
-        val cell = CLUSTER_CELL_DP * density
+
         val heatCell = HEAT_CELL_DP * density
         val heatCols = if (heatMode) max(1, ceil(w / heatCell).toInt()) else 0
         val heatRows = if (heatMode) max(1, ceil(h / heatCell).toInt()) else 0
-        val heatCounts = if (heatMode) IntArray(heatCols * heatRows) else null
+        val totalHeatCells = heatCols * heatRows
+        if (heatMode) {
+            if (heatCounts.size < totalHeatCells) {
+                heatCounts = IntArray(max(totalHeatCells, heatCounts.size * 2))
+            }
+            java.util.Arrays.fill(heatCounts, 0, totalHeatCells, 0)
+        }
         var heatMax = 0
 
         for (pin in pins) {
@@ -868,7 +883,7 @@ class GlobeView @JvmOverloads constructor(
             val py = cy - radius * y
             if (px < -cell || px > w + cell || py < -cell || py > h + cell) continue
 
-            if (heatCounts != null) {
+            if (heatMode) {
                 val gx = (px / heatCell).toInt().coerceIn(0, heatCols - 1)
                 val gy = (py / heatCell).toInt().coerceIn(0, heatRows - 1)
                 val index = gy * heatCols + gx
@@ -893,8 +908,10 @@ class GlobeView @JvmOverloads constructor(
             }
 
             if (clusterMode) {
-                val key = (px / cell).toInt() * 8192 + (py / cell).toInt()
-                val known = clusterIndexMap.get(key)
+                val gx = ((px + cell) / cell).toInt().coerceIn(0, cols - 1)
+                val gy = ((py + cell) / cell).toInt().coerceIn(0, rows - 1)
+                val gridIndex = gy * cols + gx
+                val known = clusterGrid[gridIndex]
                 if (known == -1) {
                     if (clusterCount < clusterPool.size) {
                         val cluster = clusterPool[clusterCount]
@@ -905,7 +922,7 @@ class GlobeView @JvmOverloads constructor(
                         cluster.lon = pin.sighting.lon
                         cluster.x = px.toFloat()
                         cluster.y = py.toFloat()
-                        clusterIndexMap.put(key, clusterCount)
+                        clusterGrid[gridIndex] = clusterCount
                         clusterCount++
                     }
                 } else {
@@ -936,7 +953,7 @@ class GlobeView @JvmOverloads constructor(
 
         hitCount = hitIndex
 
-        if (heatCounts != null) {
+        if (heatMode) {
             drawHeat(canvas, heatCounts, heatCols, heatRows, heatCell, heatMax)
             return
         }
@@ -1009,7 +1026,7 @@ class GlobeView @JvmOverloads constructor(
         peak: Int,
     ) {
         val denom = ln(1.0 + peak.coerceAtLeast(1))
-        for (i in counts.indices) {
+        for (i in 0 until cols * rows) {
             val count = counts[i]
             if (count == 0) continue
             val level = (ln(1.0 + count) / denom).toFloat()
@@ -1099,7 +1116,7 @@ class GlobeView @JvmOverloads constructor(
         if (curVec[2] < 0.03) return false
         val px = (cx + radius * curVec[0]).toFloat()
         val py = (cy - radius * curVec[1]).toFloat()
-        val textWidth = paint.measureText(label.text)
+        val textWidth = if (isCity) label.cityWidth else label.countryWidth
         val padX = (if (isCity) 3f else 4f) * density
         val rectWidth = textWidth + padX * 2
         val rectHeight = paint.textSize + 4f * density
@@ -1266,14 +1283,25 @@ class GlobeView @JvmOverloads constructor(
         return 0.5 - ln((1 + s) / (1 - s)) / (4 * PI)
     }
 
+    private var lastPublishedLat = Double.NaN
+    private var lastPublishedLon = Double.NaN
+    private var lastPublishedZoom = Double.NaN
+
     private fun publishReadout() {
         val now = SystemClock.uptimeMillis()
-        if (now - lastReadout < 120) return
+        if (now - lastReadout < 150) return
         lastReadout = now
         val currentLat = -phi
         val currentLon = wrap180(-lam)
         val currentZoom = zoom
-        post {
+
+        if (abs(currentLat - lastPublishedLat) > 0.05 ||
+            abs(currentLon - lastPublishedLon) > 0.05 ||
+            abs(currentZoom - lastPublishedZoom) > 0.01
+        ) {
+            lastPublishedLat = currentLat
+            lastPublishedLon = currentLon
+            lastPublishedZoom = currentZoom
             onViewChanged?.invoke(currentLat, currentLon, currentZoom)
         }
     }
@@ -1395,15 +1423,15 @@ class GlobeView @JvmOverloads constructor(
             var moving = false
             val animation = target
             if (animation != null) {
-                val progress = ((now - animation.start) / 620.0).coerceIn(0.0, 1.0)
+                val progress = ((now - animation.start) / 450.0).coerceIn(0.0, 1.0)
                 val eased = 1.0 - (1.0 - progress).pow(3.0)
-                val fromLam = lam
-                val fromPhi = phi
-                lam = fromLam + shortestDelta(fromLam, animation.lam) * eased
-                phi = fromPhi + (animation.phi - fromPhi) * eased
+                val deltaLam = shortestDelta(animation.startLam, animation.targetLam)
+                val deltaPhi = animation.targetPhi - animation.startPhi
+                lam = wrap180(animation.startLam + deltaLam * eased)
+                phi = (animation.startPhi + deltaPhi * eased).coerceIn(-85.0, 85.0)
                 if (progress >= 1.0) {
-                    lam = wrap180(animation.lam)
-                    phi = animation.phi
+                    lam = wrap180(animation.targetLam)
+                    phi = animation.targetPhi
                     target = null
                 }
                 moving = true
@@ -1435,9 +1463,9 @@ class GlobeView @JvmOverloads constructor(
                 moving = true
             }
 
-            if (moving || dirty || selectedSighting != null) invalidate()
+            if (moving || dirty) invalidate()
 
-            if (moving || selectedSighting != null || dragging) {
+            if (moving || dragging) {
                 Choreographer.getInstance().postFrameCallback(this)
             } else {
                 framePosted = false
@@ -1474,6 +1502,7 @@ class GlobeView @JvmOverloads constructor(
                 parent?.requestDisallowInterceptTouchEvent(true)
                 removeCallbacks(tapRunnable)
                 pendingTap = null
+                target = null
                 flinging = false
                 lamVelocity = 0.0
                 phiVelocity = 0.0
@@ -1540,6 +1569,8 @@ class GlobeView @JvmOverloads constructor(
                     lam += dx * degPerPx
                     phi = (phi - dy * degPerPx).coerceIn(-85.0, 85.0)
                     dirty = true
+                    ensureFrames()
+                    invalidate()
                 }
                 lastX = event.x
                 lastY = event.y
@@ -1616,6 +1647,8 @@ class GlobeView @JvmOverloads constructor(
                             if (cluster != null) {
                                 lastTapTime = 0L
                                 target = Target(
+                                    lam,
+                                    phi,
                                     -cluster.lon,
                                     (-cluster.lat).coerceIn(-72.0, 72.0),
                                     SystemClock.uptimeMillis(),
