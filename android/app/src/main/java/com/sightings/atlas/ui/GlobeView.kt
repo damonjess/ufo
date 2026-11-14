@@ -189,6 +189,9 @@ class GlobeView @JvmOverloads constructor(
 
     val isInteracting: Boolean get() = dragging || flinging
 
+    private val fastMoving: Boolean
+        get() = dragging || flinging || target != null || abs(zoomTarget - zoom) > 1e-4
+
     private var lam = DEFAULT_LAM
     private var phi = DEFAULT_PHI
     private var zoom = 1.0
@@ -628,8 +631,8 @@ class GlobeView @JvmOverloads constructor(
         if (street) {
             drawTiles(canvas)
         } else {
-            val detailed = zoom >= 2.2 && !autoRotate && !dragging && !flinging
-            val fastDraw = dragging || flinging
+            val detailed = zoom >= 2.2 && !autoRotate && !fastMoving
+            val fastDraw = fastMoving
             landFillPaint.isAntiAlias = !fastDraw
             landStrokePaint.isAntiAlias = !fastDraw
             landPath.reset()
@@ -646,7 +649,7 @@ class GlobeView @JvmOverloads constructor(
                 canvas.drawPath(graticulePath, graticulePaint)
             }
 
-            if (!autoRotate && !dragging && !flinging && target == null) {
+            if (!autoRotate && !fastMoving) {
                 borderPath.reset()
                 buildPath(borderPath, if (detailed) bordersHigh else bordersLow)
                 borderPaint.color = if (detailed) 0x668FDDEA else 0x4D8FDDEA
@@ -658,7 +661,7 @@ class GlobeView @JvmOverloads constructor(
         canvas.drawCircle(centerX, centerY, globeRadius, rimPaint)
 
         drawMarkers(canvas, w, h)
-        if (!dragging && !flinging) drawLabels(canvas, w, h)
+        if (!fastMoving) drawLabels(canvas, w, h)
         drawSelection(canvas, h)
         dirty = false
         publishReadout()
@@ -980,7 +983,7 @@ class GlobeView @JvmOverloads constructor(
 
         val zoomFactor = (1.0 + log2(zoom.coerceAtLeast(1.0)) * 0.08).coerceIn(1.0, 1.5).toFloat()
         val lowZoom = zoom < 2.2
-        val fastDraw = dragging || flinging
+        val fastDraw = fastMoving
         val core = 2.1f * density * zoomFactor
         val body = 6.5f * density * zoomFactor
         val halo = (if (lowZoom) 3f else 5f) * density * zoomFactor
@@ -1011,7 +1014,7 @@ class GlobeView @JvmOverloads constructor(
     private fun drawClusters(canvas: Canvas) {
         clusterFillPaint.color = 0x406EE7B7
         clusterRingPaint.color = 0x4D9DF3D3
-        if (dragging || flinging) {
+        if (fastMoving) {
             if (clusterCount * 2 > clusterDotCoords.size) {
                 clusterDotCoords = FloatArray(max(clusterCount * 2, clusterDotCoords.size * 2))
             }
@@ -1041,7 +1044,7 @@ class GlobeView @JvmOverloads constructor(
             val radius = (4.4f + min(4.2f, sqrt(cluster.count.toFloat()) * 0.8f)) * density
             canvas.drawCircle(cluster.x, cluster.y, radius, clusterFillPaint)
             canvas.drawCircle(cluster.x, cluster.y, radius, clusterRingPaint)
-            if (cluster.count >= 10 && !dragging && !flinging) {
+            if (cluster.count >= 10 && !fastMoving) {
                 val metrics = clusterTextPaint.fontMetrics
                 val baseline = cluster.y - (metrics.ascent + metrics.descent) / 2f
                 canvas.drawText(clusterLabel(cluster.count), cluster.x, baseline, clusterTextPaint)
@@ -1182,7 +1185,7 @@ class GlobeView @JvmOverloads constructor(
         canvas.drawCircle(px, py, (11f * density * pulse).toFloat(), selectionRingPaint)
         canvas.drawCircle(px, py, 3.2f * density, selectionDotPaint)
 
-        if (dragging || flinging) return
+        if (fastMoving) return
 
         val label = sighting.placeLabel()
         val textWidth = labelTextPaint.measureText(label)
@@ -1322,7 +1325,7 @@ class GlobeView @JvmOverloads constructor(
     private var lastPublishedZoom = Double.NaN
 
     private fun publishReadout() {
-        if (dragging || flinging) return
+        if (fastMoving) return
         val now = SystemClock.uptimeMillis()
         if (now - lastReadout < 150) return
         lastReadout = now
@@ -1543,7 +1546,7 @@ class GlobeView @JvmOverloads constructor(
                 flinging = false
                 lamVelocity = 0.0
                 phiVelocity = 0.0
-                dragging = true
+                dragging = false
                 moved = false
                 pinchUsed = false
                 downX = event.x
@@ -1565,6 +1568,7 @@ class GlobeView @JvmOverloads constructor(
                     pinchStartZoom = zoomTarget
                     pinchUsed = true
                     moved = true
+                    dragging = true
                     pinchMidX = pointerMidX(event)
                     pinchMidY = pointerMidY(event)
                     anchorX = pinchMidX
@@ -1579,6 +1583,7 @@ class GlobeView @JvmOverloads constructor(
             MotionEvent.ACTION_MOVE -> {
                 velocityTracker?.addMovement(event)
                 if (event.pointerCount >= 2) {
+                    dragging = true
                     val midX = pointerMidX(event)
                     val midY = pointerMidY(event)
                     val distance = pointerDistance(event)
@@ -1600,7 +1605,10 @@ class GlobeView @JvmOverloads constructor(
 
                 val dx = event.x - lastX
                 val dy = event.y - lastY
-                if (!moved && abs(dx) + abs(dy) > touchSlop) moved = true
+                if (!moved && abs(dx) + abs(dy) > touchSlop) {
+                    moved = true
+                    dragging = true
+                }
                 if (moved) {
                     val degPerPx = (180.0 / (PI * radius.coerceAtLeast(1.0))).toFloat()
                     lam += dx * degPerPx
