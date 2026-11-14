@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <plurals name="reports">
+        <item quantity="one">%1$s report</item>
+        <item quantity="other">%1$s reports</item>
+    </plurals>
+    <plurals name="clips">
+        <item quantity="one">%1$s clip</item>
+        <item quantity="other">%1$s clips</item>
+    </plurals>
+    <plurals name="posts">
+        <item quantity="one">%1$s post</item>
+        <item quantity="other">%1$s posts</item>
+    </plurals>
+</resources>

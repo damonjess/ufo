@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#05090B</color>
+    <color name="bg2">#070D10</color>
+    <color name="panel">#080F13</color>
+    <color name="line">#2194C5D0</color>
+    <color name="line_strong">#3D94C5D0</color>
+    <color name="text">#E6F1F2</color>
+    <color name="muted">#7D949C</color>
+    <color name="dim">#4F666E</color>
+    <color name="mint">#6EE7B7</color>
+    <color name="summary">#C7D7DA</color>
+    <color name="video_ink">#FFF8E7</color>
+    <color name="warn">#FF9F8F</color>
+    <color name="era_old">#FF9F52</color>
+    <color name="era_mid">#F2D276</color>
+    <color name="era_modern">#6FC9F2</color>
+    <color name="era_recent">#6EE7B7</color>
+    <color name="sheet">#0B151A</color>
+    <color name="colorPrimary">#6EE7B7</color>
+    <color name="colorPrimaryDark">#05090B</color>
+    <color name="colorAccent">#6EE7B7</color>
+</resources>
