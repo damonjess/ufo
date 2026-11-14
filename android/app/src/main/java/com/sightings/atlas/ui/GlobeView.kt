@@ -89,7 +89,12 @@ class GlobeView @JvmOverloads constructor(
         val cityWidth: Float,
     )
 
-    private class Pin(val sighting: Sighting, val x: Float, val y: Float, val z: Float, val era: Int)
+    private class Pin(val sighting: Sighting, val x: Float, val y: Float, val z: Float, val era: Int) {
+        val year = sighting.year
+        val lat = sighting.lat
+        val lon = sighting.lon
+        val hasVideo = sighting.video != null
+    }
 
     /** Screen-space group of pins shown as one bubble while zoomed out. */
     private class Cluster(
@@ -131,6 +136,7 @@ class GlobeView @JvmOverloads constructor(
     private var clusterCount = 0
     private var clusterGrid = IntArray(1024)
     private var heatCounts = IntArray(1024)
+    private var clusterDotCoords = FloatArray(2048)
 
     private val labelRectPool = Array(64) { RectF() }
     private var occupiedCount = 0
@@ -313,6 +319,12 @@ class GlobeView @JvmOverloads constructor(
         color = 0x4D9DF3D3
     }
     private val clusterDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF9DF3D3.toInt() }
+    private val clusterBatchPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeWidth = 3.4f * density
+        color = 0xFF9DF3D3.toInt()
+    }
     private val clusterTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = Typeface.MONOSPACE
         textSize = 7.5f * scaledDensity
@@ -617,13 +629,18 @@ class GlobeView @JvmOverloads constructor(
             drawTiles(canvas)
         } else {
             val detailed = zoom >= 2.2 && !autoRotate && !dragging && !flinging
+            val fastDraw = dragging || flinging
+            landFillPaint.isAntiAlias = !fastDraw
+            landStrokePaint.isAntiAlias = !fastDraw
             landPath.reset()
             buildPath(landPath, if (detailed) landHigh else landLow)
             canvas.drawPath(landPath, landFillPaint)
-            landStrokePaint.strokeWidth = (if (detailed) 0.75f else 0.7f) * density
-            canvas.drawPath(landPath, landStrokePaint)
+            if (!fastDraw) {
+                landStrokePaint.strokeWidth = (if (detailed) 0.75f else 0.7f) * density
+                canvas.drawPath(landPath, landStrokePaint)
+            }
 
-            if (zoom < 5.0) {
+            if (zoom < 5.0 && !fastDraw) {
                 graticulePath.reset()
                 buildPath(graticulePath, graticule)
                 canvas.drawPath(graticulePath, graticulePaint)
@@ -641,7 +658,7 @@ class GlobeView @JvmOverloads constructor(
         canvas.drawCircle(centerX, centerY, globeRadius, rimPaint)
 
         drawMarkers(canvas, w, h)
-        drawLabels(canvas, w, h)
+        if (!dragging && !flinging) drawLabels(canvas, w, h)
         drawSelection(canvas, h)
         dirty = false
         publishReadout()
@@ -870,7 +887,7 @@ class GlobeView @JvmOverloads constructor(
         var heatMax = 0
 
         for (pin in pins) {
-            if (pin.sighting.year < yearFrom || pin.sighting.year > yearTo) continue
+            if (pin.year < yearFrom || pin.year > yearTo) continue
             val a = pin.x
             val b = pin.y
             val c = pin.z
@@ -892,7 +909,7 @@ class GlobeView @JvmOverloads constructor(
                 if (n > heatMax) heatMax = n
             }
 
-            if (pin.sighting.video != null) {
+            if (pin.hasVideo) {
                 if (videoCount * 2 + 1 < videoCoords.size) {
                     videoCoords[videoCount * 2] = px.toFloat()
                     videoCoords[videoCount * 2 + 1] = py.toFloat()
@@ -918,8 +935,8 @@ class GlobeView @JvmOverloads constructor(
                         cluster.sx = px.toDouble()
                         cluster.sy = py.toDouble()
                         cluster.count = 1
-                        cluster.lat = pin.sighting.lat
-                        cluster.lon = pin.sighting.lon
+                        cluster.lat = pin.lat
+                        cluster.lon = pin.lon
                         cluster.x = px.toFloat()
                         cluster.y = py.toFloat()
                         clusterGrid[gridIndex] = clusterCount
@@ -963,6 +980,7 @@ class GlobeView @JvmOverloads constructor(
 
         val zoomFactor = (1.0 + log2(zoom.coerceAtLeast(1.0)) * 0.08).coerceIn(1.0, 1.5).toFloat()
         val lowZoom = zoom < 2.2
+        val fastDraw = dragging || flinging
         val core = 2.1f * density * zoomFactor
         val body = 6.5f * density * zoomFactor
         val halo = (if (lowZoom) 3f else 5f) * density * zoomFactor
@@ -977,7 +995,7 @@ class GlobeView @JvmOverloads constructor(
                 pinHaloPaint.color = ColorUtils.setAlphaComponent(color, if (lowZoom) 26 else 40)
                 pinCorePaint.color = color
                 val coords = pinCoords[era]
-                canvas.drawPoints(coords, 0, count * 2, pinHaloPaint)
+                if (!fastDraw) canvas.drawPoints(coords, 0, count * 2, pinHaloPaint)
                 canvas.drawPoints(coords, 0, count * 2, pinCorePaint)
             }
         }
@@ -993,6 +1011,20 @@ class GlobeView @JvmOverloads constructor(
     private fun drawClusters(canvas: Canvas) {
         clusterFillPaint.color = 0x406EE7B7
         clusterRingPaint.color = 0x4D9DF3D3
+        if (dragging || flinging) {
+            if (clusterCount * 2 > clusterDotCoords.size) {
+                clusterDotCoords = FloatArray(max(clusterCount * 2, clusterDotCoords.size * 2))
+            }
+            for (i in 0 until clusterCount) {
+                val cluster = clusterPool[i]
+                clusterDotCoords[i * 2] = cluster.x
+                clusterDotCoords[i * 2 + 1] = cluster.y
+            }
+            if (clusterCount > 0) {
+                canvas.drawPoints(clusterDotCoords, 0, clusterCount * 2, clusterBatchPaint)
+            }
+            return
+        }
         val dotsOnly = zoom < 2.0
         for (i in 0 until clusterCount) {
             val cluster = clusterPool[i]
@@ -1009,7 +1041,7 @@ class GlobeView @JvmOverloads constructor(
             val radius = (4.4f + min(4.2f, sqrt(cluster.count.toFloat()) * 0.8f)) * density
             canvas.drawCircle(cluster.x, cluster.y, radius, clusterFillPaint)
             canvas.drawCircle(cluster.x, cluster.y, radius, clusterRingPaint)
-            if (cluster.count >= 10) {
+            if (cluster.count >= 10 && !dragging && !flinging) {
                 val metrics = clusterTextPaint.fontMetrics
                 val baseline = cluster.y - (metrics.ascent + metrics.descent) / 2f
                 canvas.drawText(clusterLabel(cluster.count), cluster.x, baseline, clusterTextPaint)
@@ -1150,6 +1182,8 @@ class GlobeView @JvmOverloads constructor(
         canvas.drawCircle(px, py, (11f * density * pulse).toFloat(), selectionRingPaint)
         canvas.drawCircle(px, py, 3.2f * density, selectionDotPaint)
 
+        if (dragging || flinging) return
+
         val label = sighting.placeLabel()
         val textWidth = labelTextPaint.measureText(label)
         val padX = 8f * density
@@ -1288,6 +1322,7 @@ class GlobeView @JvmOverloads constructor(
     private var lastPublishedZoom = Double.NaN
 
     private fun publishReadout() {
+        if (dragging || flinging) return
         val now = SystemClock.uptimeMillis()
         if (now - lastReadout < 150) return
         lastReadout = now
@@ -1449,6 +1484,8 @@ class GlobeView @JvmOverloads constructor(
                     flinging = false
                     lamVelocity = 0.0
                     phiVelocity = 0.0
+                    lastReadout = 0L
+                    dirty = true
                     onInteractionEnd?.invoke()
                 }
                 moving = true
@@ -1601,6 +1638,9 @@ class GlobeView @JvmOverloads constructor(
                     dirty = true
                 }
                 dragging = false
+                dirty = true
+                lastReadout = 0L
+                ensureFrames()
                 parent?.requestDisallowInterceptTouchEvent(false)
                 anchorGeo = null
                 val tracker = velocityTracker

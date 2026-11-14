@@ -137,6 +137,7 @@ class MainActivity : AppCompatActivity() {
 
     private val handler = Handler(Looper.getMainLooper())
     private val refreshRunnable = Runnable { refresh() }
+    private val hoverRefreshRunnable = Runnable { refresh(updateGlobePins = false) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -298,14 +299,14 @@ class MainActivity : AppCompatActivity() {
                 if (nowHoveringUk) {
                     triggerUkTikTokFetch()
                 }
-                scheduleRefresh()
+                scheduleHoverRefresh()
             } else if ((nowHoveringUk || (!spinning && tab == 2)) && !globe.isInteracting) {
-                scheduleRefresh()
+                scheduleHoverRefresh()
             }
         }
         globe.onInteractionEnd = {
             if (!spinning && (hoveringUk || tab == 2)) {
-                scheduleRefresh()
+                scheduleHoverRefresh()
             }
         }
         globe.onStreetModeChanged = { active ->
@@ -477,6 +478,11 @@ class MainActivity : AppCompatActivity() {
         handler.postDelayed(refreshRunnable, 70)
     }
 
+    private fun scheduleHoverRefresh() {
+        handler.removeCallbacks(hoverRefreshRunnable)
+        handler.postDelayed(hoverRefreshRunnable, 70)
+    }
+
     private fun matches(sighting: Sighting, text: String, ignoreYear: Boolean = false): Boolean {
         if (!ignoreYear && (sighting.year < yearStart || sighting.year > yearEnd)) return false
         return matchesNonYear(sighting, text)
@@ -498,6 +504,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun refresh(updateGlobePins: Boolean = true) {
         handler.removeCallbacks(refreshRunnable)
+        handler.removeCallbacks(hoverRefreshRunnable)
         if (playing && !timelineRefresh) {
             playing = false
             handler.removeCallbacks(playRunnable)
@@ -520,11 +527,19 @@ class MainActivity : AppCompatActivity() {
         }
         val sortByDistance = !spinning && (tab == 2 || hoveringUk) && hoverLat.isFinite()
         if (sortByDistance) {
-            filtered.sortWith(
-                compareBy<Sighting> {
-                    if (it.hasPosition) distanceKm(hoverLat, hoverLon, it.lat, it.lon) else Double.MAX_VALUE
-                }.thenByDescending { it.date },
+            val ranked = ArrayList<Pair<Sighting, Double>>(filtered.size)
+            for (sighting in filtered) {
+                val distance = if (sighting.hasPosition) {
+                    distanceKm(hoverLat, hoverLon, sighting.lat, sighting.lon)
+                } else {
+                    Double.MAX_VALUE
+                }
+                ranked.add(sighting to distance)
+            }
+            ranked.sortWith(
+                compareBy<Pair<Sighting, Double>> { it.second }.thenByDescending { it.first.date },
             )
+            for (i in filtered.indices) filtered[i] = ranked[i].first
         } else if (!newestFirst) {
             filtered.reverse()
         }
