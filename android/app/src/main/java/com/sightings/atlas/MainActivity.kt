@@ -40,6 +40,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.sightings.atlas.data.AtlasRepository
 import com.sightings.atlas.data.Dataset
+import com.sightings.atlas.data.LiveTikTokFetcher
 import com.sightings.atlas.model.Era
 import com.sightings.atlas.model.Sighting
 import com.sightings.atlas.model.coordLabel
@@ -123,6 +124,10 @@ class MainActivity : AppCompatActivity() {
     private var fastPlay = false
     private var timelineRefresh = false
     private var lastScrubAt = 0L
+    private var hoverLat = Double.NaN
+    private var hoverLon = Double.NaN
+    private var hoverZoom = 1.0
+    private var hoveringUk = false
 
     private val savedIds = HashSet<Int>()
     private val prefs by lazy { getSharedPreferences("atlas_prefs", Context.MODE_PRIVATE) }
@@ -267,11 +272,29 @@ class MainActivity : AppCompatActivity() {
         }
         globe.onUserRotate = { stopSpin() }
         globe.onViewChanged = { lat, lon, zoom ->
+            hoverLat = lat
+            hoverLon = lon
+            hoverZoom = zoom
             viewReadout.text = getString(
                 R.string.view_readout,
                 coordLabel(lat, lon),
                 zoomLabel(zoom),
             )
+            val nowHoveringUk = !spinning && LiveTikTokFetcher.isInUkRegion(lat, lon)
+            if (nowHoveringUk != hoveringUk) {
+                hoveringUk = nowHoveringUk
+                if (nowHoveringUk) {
+                    triggerUkTikTokFetch()
+                }
+                scheduleRefresh()
+            } else if ((nowHoveringUk || (!spinning && tab == 2)) && !globe.isInteracting) {
+                scheduleRefresh()
+            }
+        }
+        globe.onInteractionEnd = {
+            if (!spinning && (hoveringUk || tab == 2)) {
+                scheduleRefresh()
+            }
         }
         globe.onStreetModeChanged = { active ->
             mapCredit.post {
@@ -296,6 +319,7 @@ class MainActivity : AppCompatActivity() {
                     statReports.text = String.format(Locale.US, "%,d", data.reports.size)
                     statCountries.text = data.countries.toString()
                     statYears.text = "${data.minYear}–${data.maxYear}"
+                    updateTabLabels(data)
                     globe.setWorld(data.world)
                     buildLegend()
                     buildTimeline(data)
@@ -312,11 +336,23 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
+    private fun updateTabLabels(data: Dataset) {
+        val reports = if (data.reports.size >= 10_000) {
+            String.format(Locale.US, "%.1fk", data.reports.size / 1000.0)
+        } else {
+            data.reports.size.toString()
+        }
+        tabReports.text = "${getString(R.string.tab_reports)} $reports"
+        tabVideos.text = "▶ ${getString(R.string.tab_video)} ${data.videos.size}"
+        tabSocial.text = "▶ ${getString(R.string.tab_social)} ${data.social.size}"
+    }
+
     private fun setTab(index: Int) {
         if (tab == index && adapter != null) return
         tab = index
         limit = 200
         updateTabs()
+        buildLegend()
         source.text = getString(
             when (index) {
                 1 -> R.string.video_source
@@ -369,6 +405,12 @@ class MainActivity : AppCompatActivity() {
                 scheduleRefresh()
             },
         )
+        legend.addView(
+            legendChip("▶ Video", colorOf(R.color.video_ink), tab == 1, dot = true) {
+                setTab(if (tab == 1) 0 else 1)
+                buildLegend()
+            },
+        )
         for (item in Era.entries) {
             legend.addView(
                 legendChip(item.short, item.color, era == item) {
@@ -415,8 +457,12 @@ class MainActivity : AppCompatActivity() {
         handler.postDelayed(refreshRunnable, 70)
     }
 
-    private fun matches(sighting: Sighting, text: String): Boolean {
-        if (sighting.year < yearStart || sighting.year > yearEnd) return false
+    private fun matches(sighting: Sighting, text: String, ignoreYear: Boolean = false): Boolean {
+        if (!ignoreYear && (sighting.year < yearStart || sighting.year > yearEnd)) return false
+        return matchesNonYear(sighting, text)
+    }
+
+    private fun matchesNonYear(sighting: Sighting, text: String): Boolean {
         if (era != null && eraOf(sighting.year) != era) return false
         if (tab == 0 && shape != null && sighting.shape != shape) return false
         if (savedOnly && sighting.id !in savedIds) return false
@@ -427,14 +473,10 @@ class MainActivity : AppCompatActivity() {
             if (distanceKm(nearLat, nearLon, sighting.lat, sighting.lon) > nearRadiusKm) return false
         }
         if (text.isEmpty()) return true
-        val haystack = (
-            sighting.city + " " + sighting.region + " " + sighting.country + " " +
-                sighting.shape + " " + sighting.summary + " " + sighting.date
-            ).lowercase(Locale.US)
-        return haystack.contains(text)
+        return sighting.searchHaystack.contains(text)
     }
 
-    private fun refresh() {
+    private fun refresh(updateGlobePins: Boolean = true) {
         handler.removeCallbacks(refreshRunnable)
         if (playing && !timelineRefresh) {
             playing = false
@@ -449,25 +491,66 @@ class MainActivity : AppCompatActivity() {
             else -> data.reports
         }
 
-        val filtered = ArrayList<Sighting>()
+        val filtered = ArrayList<Sighting>(base.size)
+        val pinReports = if (tab == 0 && updateGlobePins) ArrayList<Sighting>(base.size) else null
         for (sighting in base) {
-            if (matches(sighting, text)) filtered.add(sighting)
+            if (!matchesNonYear(sighting, text)) continue
+            if (sighting.year in yearStart..yearEnd) filtered.add(sighting)
+            pinReports?.add(sighting)
         }
-        val comparator = if (newestFirst) {
-            compareByDescending<Sighting> { it.date }.thenByDescending { it.id }
-        } else {
-            compareBy<Sighting> { it.date }.thenBy { it.id }
+        val sortByDistance = !spinning && (tab == 2 || hoveringUk) && hoverLat.isFinite()
+        if (sortByDistance) {
+            filtered.sortWith(
+                compareBy<Sighting> {
+                    if (it.hasPosition) distanceKm(hoverLat, hoverLon, it.lat, it.lon) else Double.MAX_VALUE
+                }.thenByDescending { it.date },
+            )
+        } else if (!newestFirst) {
+            filtered.reverse()
         }
-        filtered.sortWith(comparator)
-        lastFiltered = filtered
-        adapter?.origin = if (nearLat.isFinite()) doubleArrayOf(nearLat, nearLon) else null
 
-        val pins = ArrayList<Sighting>()
-        for (sighting in data.reports) {
-            if (matches(sighting, text)) pins.add(sighting)
+        var plotted = filtered.size
+        if (updateGlobePins) {
+            val pins = ArrayList<Sighting>(base.size + data.social.size + data.videos.size)
+            when (tab) {
+                1, 2 -> pins.addAll(filtered)
+                else -> {
+                    pins.addAll(pinReports.orEmpty())
+                    for (sighting in data.videos) {
+                        if (matches(sighting, text, ignoreYear = true)) pins.add(sighting)
+                    }
+                    for (sighting in data.social) {
+                        if (matches(sighting, text, ignoreYear = true)) pins.add(sighting)
+                    }
+                }
+            }
+            globe.setSightings(pins)
         }
-        globe.setSightings(pins)
-        plottedLabel.text = getString(R.string.plotted, String.format(Locale.US, "%,d", pins.size))
+        if (tab == 0) {
+            for (sighting in data.videos) {
+                if (matches(sighting, text)) plotted++
+            }
+            for (sighting in data.social) {
+                if (matches(sighting, text)) plotted++
+            }
+        }
+        plottedLabel.text = getString(R.string.plotted, String.format(Locale.US, "%,d", plotted))
+
+        if (hoveringUk && tab == 0) {
+            val ukTikToks = data.social
+                .filter { it.hasPosition && LiveTikTokFetcher.isInUkRegion(it.lat, it.lon) && matches(it, text) }
+                .sortedBy { distanceKm(hoverLat, hoverLon, it.lat, it.lon) }
+            if (ukTikToks.isNotEmpty()) {
+                filtered.addAll(0, ukTikToks)
+            }
+        }
+
+        lastFiltered = filtered
+        adapter?.origin = when {
+            nearLat.isFinite() -> doubleArrayOf(nearLat, nearLon)
+            hoveringUk && hoverLat.isFinite() -> doubleArrayOf(hoverLat, hoverLon)
+            else -> null
+        }
 
         adapter?.submit(filtered.take(limit))
         val plural = when (tab) {
@@ -501,6 +584,7 @@ class MainActivity : AppCompatActivity() {
         onThisDay = false
         updateOnThisDay()
         resetTimelineUi()
+        globe.clearYearWindow()
         nearLat = Double.NaN
         nearLon = Double.NaN
         updateNearChip()
@@ -521,6 +605,35 @@ class MainActivity : AppCompatActivity() {
             spinning = false
             globe.autoRotate = false
             updateSpinChip()
+            if (hoverLat.isFinite() && LiveTikTokFetcher.isInUkRegion(hoverLat, hoverLon)) {
+                hoveringUk = true
+                triggerUkTikTokFetch()
+                scheduleRefresh()
+            }
+        }
+    }
+
+    private fun triggerUkTikTokFetch() {
+        val data = dataset ?: return
+        val existingIds = data.social.mapNotNull { it.video?.id }.toSet()
+        LiveTikTokFetcher.fetchUkClipsAsync(this, existingIds) { newClips ->
+            runOnUiThread {
+                val cur = dataset ?: return@runOnUiThread
+                val known = cur.social.mapNotNull { it.video?.id }.toHashSet()
+                var added = 0
+                for (clip in newClips) {
+                    val cid = clip.video?.id ?: continue
+                    if (known.add(cid)) {
+                        cur.social.add(clip)
+                        added++
+                    }
+                }
+                if (added > 0) {
+                    cur.social.sortWith(compareByDescending<Sighting> { it.date }.thenByDescending { it.id })
+                    updateTabLabels(cur)
+                    refresh()
+                }
+            }
         }
     }
 
@@ -668,6 +781,7 @@ class MainActivity : AppCompatActivity() {
             val from = (target - 1).coerceAtLeast(data.minYear)
             val to = (target + 1).coerceAtMost(data.maxYear)
             timeline.setPlayhead(target, from, to, true)
+            globe.setYearWindow(from, to)
             return
         }
         lastScrubAt = now
@@ -680,17 +794,19 @@ class MainActivity : AppCompatActivity() {
         yearStart = (target - 1).coerceAtLeast(data.minYear)
         yearEnd = (target + 1).coerceAtMost(data.maxYear)
         timeline.setPlayhead(target, yearStart, yearEnd, true)
+        globe.setYearWindow(yearStart, yearEnd)
         timelineYear.text = "$target ×"
         timelineYear.contentDescription = getString(R.string.timeline_clear_hint, target)
         timelineYear.setTextColor(colorOf(R.color.mint))
         timelineRefresh = true
-        refresh()
+        refresh(updateGlobePins = false)
         timelineRefresh = false
     }
 
     private fun clearTimeline() {
         val data = dataset ?: return
         resetTimelineUi()
+        globe.clearYearWindow()
         yearStart = baseYearStart.coerceIn(data.minYear, data.maxYear)
         yearEnd = baseYearEnd.coerceIn(data.minYear, data.maxYear)
         refresh()

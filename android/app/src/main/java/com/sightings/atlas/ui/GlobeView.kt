@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RadialGradient
@@ -78,20 +79,57 @@ class GlobeView @JvmOverloads constructor(
 
     /** Screen-space group of pins shown as one bubble while zoomed out. */
     private class Cluster(
-        var sx: Double,
-        var sy: Double,
-        var count: Int,
-        val lat: Double,
-        val lon: Double,
+        var sx: Double = 0.0,
+        var sy: Double = 0.0,
+        var count: Int = 0,
+        var lat: Double = 0.0,
+        var lon: Double = 0.0,
     ) {
         var x = 0f
         var y = 0f
+    }
+
+    private class IntIntMap(capacity: Int = 4096) {
+        private val keys = IntArray(capacity) { EMPTY_KEY }
+        private val values = IntArray(capacity)
+        private val mask = capacity - 1
+
+        fun clear() {
+            java.util.Arrays.fill(keys, EMPTY_KEY)
+        }
+
+        fun get(key: Int): Int {
+            var index = (key and 0x7FFFFFFF) and mask
+            while (keys[index] != EMPTY_KEY) {
+                if (keys[index] == key) return values[index]
+                index = (index + 1) and mask
+            }
+            return -1
+        }
+
+        fun put(key: Int, value: Int) {
+            var index = (key and 0x7FFFFFFF) and mask
+            while (keys[index] != EMPTY_KEY) {
+                if (keys[index] == key) {
+                    values[index] = value
+                    return
+                }
+                index = (index + 1) and mask
+            }
+            keys[index] = key
+            values[index] = value
+        }
+
+        private companion object {
+            const val EMPTY_KEY = Int.MIN_VALUE
+        }
     }
 
     private val density = resources.displayMetrics.density
     private val scaledDensity = density * resources.configuration.fontScale
     private val doubleTapTimeout = ViewConfiguration.getDoubleTapTimeout()
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+    private val eraValues = Era.entries.toTypedArray()
 
     private var landLow: List<Ring> = emptyList()
     private var landHigh: List<Ring> = emptyList()
@@ -108,7 +146,15 @@ class GlobeView @JvmOverloads constructor(
     private var videoCount = 0
     private var hitX = FloatArray(0)
     private var hitY = FloatArray(0)
-    private val hitItems = ArrayList<Sighting>()
+    private var hitPins: Array<Pin?> = emptyArray()
+    private var hitCount = 0
+
+    private val clusterPool = Array(1000) { Cluster() }
+    private var clusterCount = 0
+    private val clusterIndexMap = IntIntMap(4096)
+
+    private val labelRectPool = Array(64) { RectF() }
+    private var occupiedCount = 0
 
     private var selectedSighting: Sighting? = null
 
@@ -151,8 +197,12 @@ class GlobeView @JvmOverloads constructor(
     var onUserRotate: (() -> Unit)? = null
     /** Called with centre latitude, centre longitude and zoom. */
     var onViewChanged: ((Double, Double, Double) -> Unit)? = null
+    /** Called when dragging/flinging stops. */
+    var onInteractionEnd: (() -> Unit)? = null
     /** True while the street-tile layer is showing. */
     var onStreetModeChanged: ((Boolean) -> Unit)? = null
+
+    val isInteracting: Boolean get() = dragging || flinging
 
     private var lam = DEFAULT_LAM
     private var phi = DEFAULT_PHI
@@ -192,7 +242,7 @@ class GlobeView @JvmOverloads constructor(
     private var lastFrame = 0.0
     private var lastFrameNanos = 0L
     private var lastReadout = 0L
-    private var background: android.graphics.Bitmap? = null
+    private var background: Bitmap? = null
 
     // projection state
     private var cx = 0f
@@ -205,9 +255,7 @@ class GlobeView @JvmOverloads constructor(
     private var cosPhi = 1.0
     private var sinPhi = 0.0
 
-    private val prevVec = DoubleArray(3)
     private val curVec = DoubleArray(3)
-    private val hzVec = DoubleArray(3)
 
     private val landPath = Path().apply { fillType = Path.FillType.EVEN_ODD }
     private val borderPath = Path()
@@ -220,6 +268,7 @@ class GlobeView @JvmOverloads constructor(
     private var shaderRadius = -1.0
     private var shaderWidth = 0
     private var shaderHeight = 0
+    private val shaderMatrix = Matrix()
 
     private val bgPaint = Paint().apply { color = 0xFF05090B.toInt() }
     private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -290,7 +339,6 @@ class GlobeView @JvmOverloads constructor(
         textAlign = Paint.Align.CENTER
     }
     private val heatPaint = Paint().apply { isAntiAlias = false }
-    private val clusters = ArrayList<Cluster>()
 
     private val countryLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = Typeface.MONOSPACE
@@ -317,7 +365,6 @@ class GlobeView @JvmOverloads constructor(
     }
 
     private val labelBounds = RectF()
-    private val occupied = ArrayList<RectF>()
 
     // Street tiles: raster map tiles drawn once the globe is deep enough to read roads.
     private val tileCache = object : LruCache<String, Bitmap>(48) {}
@@ -400,7 +447,8 @@ class GlobeView @JvmOverloads constructor(
         videoCount = 0
         hitX = FloatArray(built.size)
         hitY = FloatArray(built.size)
-        hitItems.clear()
+        hitPins = Array(built.size) { null }
+        hitCount = 0
         dirty = true
         invalidate()
     }
@@ -580,7 +628,7 @@ class GlobeView @JvmOverloads constructor(
         if (street) {
             drawTiles(canvas)
         } else {
-            val detailed = zoom >= 2.2
+            val detailed = zoom >= 2.2 && !autoRotate && !dragging && !flinging
             landPath.reset()
             buildPath(landPath, if (detailed) landHigh else landLow)
             canvas.drawPath(landPath, landFillPaint)
@@ -605,6 +653,7 @@ class GlobeView @JvmOverloads constructor(
         drawMarkers(canvas, w, h)
         drawLabels(canvas, w, h)
         drawSelection(canvas, h)
+        dirty = false
         publishReadout()
     }
 
@@ -632,7 +681,7 @@ class GlobeView @JvmOverloads constructor(
     private fun buildBackgroundBitmap(w: Int, h: Int) {
         if (w <= 0 || h <= 0) return
         background?.recycle()
-        val bitmap = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+        val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         canvas.drawColor(bgPaint.color)
         glowShader?.let {
@@ -651,26 +700,32 @@ class GlobeView @JvmOverloads constructor(
     }
 
     private fun updateShaders(centerX: Float, centerY: Float, globeRadius: Float) {
-        if (abs(globeRadius - shaderRadius) < 0.5 && shaderWidth == width && shaderHeight == height) return
-        shaderRadius = globeRadius.toDouble()
-        shaderWidth = width
-        shaderHeight = height
-        atmoShader = RadialGradient(
-            centerX,
-            centerY,
-            globeRadius * 1.24f,
-            intArrayOf(0x296EE7B7, 0x1288AFCD, 0x0088AFCD),
-            floatArrayOf(0.758f, 0.891f, 1f),
-            Shader.TileMode.CLAMP,
-        )
-        oceanShader = RadialGradient(
-            centerX - globeRadius * 0.35f,
-            centerY - globeRadius * 0.4f,
-            globeRadius * 1.04f,
-            intArrayOf(0xFF123039.toInt(), 0xFF0B1F27.toInt(), 0xFF05121A.toInt()),
-            floatArrayOf(0f, 0.45f, 1f),
-            Shader.TileMode.CLAMP,
-        )
+        if (shaderWidth != width || shaderHeight != height || atmoShader == null) {
+            shaderWidth = width
+            shaderHeight = height
+            shaderRadius = globeRadius.toDouble()
+            atmoShader = RadialGradient(
+                centerX,
+                centerY,
+                globeRadius * 1.24f,
+                intArrayOf(0x296EE7B7, 0x1288AFCD, 0x0088AFCD),
+                floatArrayOf(0.758f, 0.891f, 1f),
+                Shader.TileMode.CLAMP,
+            )
+            oceanShader = RadialGradient(
+                centerX - globeRadius * 0.35f,
+                centerY - globeRadius * 0.4f,
+                globeRadius * 1.04f,
+                intArrayOf(0xFF123039.toInt(), 0xFF0B1F27.toInt(), 0xFF05121A.toInt()),
+                floatArrayOf(0f, 0.45f, 1f),
+                Shader.TileMode.CLAMP,
+            )
+        } else if (abs(globeRadius - shaderRadius) > 0.5) {
+            val scale = (globeRadius / shaderRadius).toFloat()
+            shaderMatrix.setScale(scale, scale, centerX, centerY)
+            atmoShader?.setLocalMatrix(shaderMatrix)
+            oceanShader?.setLocalMatrix(shaderMatrix)
+        }
     }
 
     private fun buildPath(path: Path, rings: List<Ring>) {
@@ -709,39 +764,43 @@ class GlobeView @JvmOverloads constructor(
         val count = pts.size / 3
         if (count < 2) return
 
+        val radF = radius.toFloat()
         var a = pts[(count - 1) * 3]
         var b = pts[(count - 1) * 3 + 1]
         var c = pts[(count - 1) * 3 + 2]
-        var x = a * cl - b * sl
+        var prevX = a * cl - b * sl
         var bc = b * cl + a * sl
-        var z = sp * c + cp * bc
-        prevVec[0] = x.toDouble()
-        prevVec[1] = (cp * c - sp * bc).toDouble()
-        prevVec[2] = z.toDouble()
-        var prevVisible = z >= 0f
+        var prevY = cp * c - sp * bc
+        var prevZ = sp * c + cp * bc
+        var prevVisible = prevZ >= 0f
         var penDown = false
 
         for (i in 0 until count) {
             a = pts[i * 3]
             b = pts[i * 3 + 1]
             c = pts[i * 3 + 2]
-            x = a * cl - b * sl
+            val curX = a * cl - b * sl
             bc = b * cl + a * sl
-            val y = cp * c - sp * bc
-            z = sp * c + cp * bc
-            val visible = z >= 0f
+            val curY = cp * c - sp * bc
+            val curZ = sp * c + cp * bc
+            val visible = curZ >= 0f
 
             if (visible) {
                 if (!prevVisible) {
-                    curVec[0] = x.toDouble()
-                    curVec[1] = y.toDouble()
-                    curVec[2] = z.toDouble()
-                    horizonPoint(prevVec, curVec, hzVec)
-                    path.moveTo((cx + radius * hzVec[0]).toFloat(), (cy - radius * hzVec[1]).toFloat())
+                    val denom = prevZ - curZ
+                    val t = if (denom != 0f) prevZ / denom else 0.5f
+                    var hzX = prevX + (curX - prevX) * t
+                    var hzY = prevY + (curY - prevY) * t
+                    val n = sqrt(hzX * hzX + hzY * hzY)
+                    if (n > 1e-6f) {
+                        hzX /= n
+                        hzY /= n
+                    }
+                    path.moveTo(cx + radF * hzX, cy - radF * hzY)
                     penDown = true
                 }
-                val sx = (cx + radius * x).toFloat()
-                val sy = (cy - radius * y).toFloat()
+                val sx = cx + radF * curX
+                val sy = cy - radF * curY
                 if (penDown) {
                     path.lineTo(sx, sy)
                 } else {
@@ -749,42 +808,31 @@ class GlobeView @JvmOverloads constructor(
                     penDown = true
                 }
             } else if (prevVisible && penDown) {
-                curVec[0] = x.toDouble()
-                curVec[1] = y.toDouble()
-                curVec[2] = z.toDouble()
-                horizonPoint(prevVec, curVec, hzVec)
-                path.lineTo((cx + radius * hzVec[0]).toFloat(), (cy - radius * hzVec[1]).toFloat())
+                val denom = prevZ - curZ
+                val t = if (denom != 0f) prevZ / denom else 0.5f
+                var hzX = prevX + (curX - prevX) * t
+                var hzY = prevY + (curY - prevY) * t
+                val n = sqrt(hzX * hzX + hzY * hzY)
+                if (n > 1e-6f) {
+                    hzX /= n
+                    hzY /= n
+                }
+                path.lineTo(cx + radF * hzX, cy - radF * hzY)
                 penDown = false
             }
 
-            prevVec[0] = x.toDouble()
-            prevVec[1] = y.toDouble()
-            prevVec[2] = z.toDouble()
+            prevX = curX
+            prevY = curY
+            prevZ = curZ
             prevVisible = visible
         }
         if (penDown && ring.closed) path.close()
     }
 
-    private fun horizonPoint(a: DoubleArray, b: DoubleArray, out: DoubleArray) {
-        val t = a[2] / (a[2] - b[2])
-        var x = a[0] + (b[0] - a[0]) * t
-        var y = a[1] + (b[1] - a[1]) * t
-        val n = sqrt(x * x + y * y)
-        if (n > 1e-9) {
-            x /= n
-            y /= n
-        } else {
-            x = 0.0
-            y = 0.0
-        }
-        out[0] = x
-        out[1] = y
-    }
-
     private fun drawMarkers(canvas: Canvas, w: Float, h: Float) {
         pinCounts.fill(0)
         videoCount = 0
-        hitItems.clear()
+        hitCount = 0
         var hitIndex = 0
 
         val cl = cosLam.toFloat()
@@ -793,8 +841,11 @@ class GlobeView @JvmOverloads constructor(
         val sp = sinPhi.toFloat()
 
         val clusterMode = !heatMode && zoom >= CLUSTER_MIN_ZOOM && zoom < CLUSTER_ZOOM
+        if (clusterMode) {
+            clusterCount = 0
+            clusterIndexMap.clear()
+        }
         val cell = CLUSTER_CELL_DP * density
-        val clusterIndex = if (clusterMode) HashMap<Int, Int>() else null
         val heatCell = HEAT_CELL_DP * density
         val heatCols = if (heatMode) max(1, ceil(w / heatCell).toInt()) else 0
         val heatRows = if (heatMode) max(1, ceil(h / heatCell).toInt()) else 0
@@ -824,19 +875,39 @@ class GlobeView @JvmOverloads constructor(
                 if (n > heatMax) heatMax = n
             }
 
+            if (pin.sighting.video != null) {
+                if (videoCount * 2 + 1 < videoCoords.size) {
+                    videoCoords[videoCount * 2] = px.toFloat()
+                    videoCoords[videoCount * 2 + 1] = py.toFloat()
+                    videoCount++
+                }
+                if (hitIndex < hitX.size) {
+                    hitX[hitIndex] = px.toFloat()
+                    hitY[hitIndex] = py.toFloat()
+                    hitPins[hitIndex] = pin
+                    hitIndex++
+                }
+                continue
+            }
+
             if (clusterMode) {
                 val key = (px / cell).toInt() * 8192 + (py / cell).toInt()
-                val known = clusterIndex!![key]
-                if (known == null) {
-                    clusterIndex[key] = clusters.size
-                    clusters.add(
-                        Cluster(px, py, 1, pin.sighting.lat, pin.sighting.lon).apply {
-                            this.x = px.toFloat()
-                            this.y = py.toFloat()
-                        },
-                    )
+                val known = clusterIndexMap.get(key)
+                if (known == -1) {
+                    if (clusterCount < clusterPool.size) {
+                        val cluster = clusterPool[clusterCount]
+                        cluster.sx = px.toDouble()
+                        cluster.sy = py.toDouble()
+                        cluster.count = 1
+                        cluster.lat = pin.sighting.lat
+                        cluster.lon = pin.sighting.lon
+                        cluster.x = px.toFloat()
+                        cluster.y = py.toFloat()
+                        clusterIndexMap.put(key, clusterCount)
+                        clusterCount++
+                    }
                 } else {
-                    val cluster = clusters[known]
+                    val cluster = clusterPool[known]
                     cluster.count++
                     cluster.sx += px.toDouble()
                     cluster.sy += py.toDouble()
@@ -846,28 +917,22 @@ class GlobeView @JvmOverloads constructor(
                 continue
             }
 
-            if (pin.sighting.video != null) {
-                if (videoCount * 2 + 1 < videoCoords.size) {
-                    videoCoords[videoCount * 2] = px.toFloat()
-                    videoCoords[videoCount * 2 + 1] = py.toFloat()
-                    videoCount++
-                }
-            } else {
-                val index = pinCounts[pin.era]
-                val coords = pinCoords[pin.era]
-                if (index * 2 + 1 < coords.size) {
-                    coords[index * 2] = px.toFloat()
-                    coords[index * 2 + 1] = py.toFloat()
-                    pinCounts[pin.era] = index + 1
-                }
+            val index = pinCounts[pin.era]
+            val coords = pinCoords[pin.era]
+            if (index * 2 + 1 < coords.size) {
+                coords[index * 2] = px.toFloat()
+                coords[index * 2 + 1] = py.toFloat()
+                pinCounts[pin.era] = index + 1
             }
             if (hitIndex < hitX.size) {
                 hitX[hitIndex] = px.toFloat()
                 hitY[hitIndex] = py.toFloat()
-                hitItems.add(pin.sighting)
+                hitPins[hitIndex] = pin
                 hitIndex++
             }
         }
+
+        hitCount = hitIndex
 
         if (heatCounts != null) {
             drawHeat(canvas, heatCounts, heatCols, heatRows, heatCell, heatMax)
@@ -875,7 +940,6 @@ class GlobeView @JvmOverloads constructor(
         }
         if (clusterMode) {
             drawClusters(canvas)
-            return
         }
 
         val zoomFactor = (1.0 + log2(zoom.coerceAtLeast(1.0)) * 0.08).coerceIn(1.0, 1.5).toFloat()
@@ -886,26 +950,38 @@ class GlobeView @JvmOverloads constructor(
         pinHaloPaint.strokeWidth = halo
         pinCorePaint.strokeWidth = core
 
-        for (era in 0 until 4) {
-            val count = pinCounts[era]
-            if (count == 0) continue
-            val color = Era.entries[era].color
-            pinHaloPaint.color = ColorUtils.setAlphaComponent(color, if (lowZoom) 26 else 40)
-            pinCorePaint.color = color
-            val coords = pinCoords[era]
-            canvas.drawPoints(coords, 0, count * 2, pinHaloPaint)
-            canvas.drawPoints(coords, 0, count * 2, pinCorePaint)
+        if (!clusterMode) {
+            for (era in 0 until 4) {
+                val count = pinCounts[era]
+                if (count == 0) continue
+                val color = eraValues[era].color
+                pinHaloPaint.color = ColorUtils.setAlphaComponent(color, if (lowZoom) 26 else 40)
+                pinCorePaint.color = color
+                val coords = pinCoords[era]
+                canvas.drawPoints(coords, 0, count * 2, pinHaloPaint)
+                canvas.drawPoints(coords, 0, count * 2, pinCorePaint)
+            }
         }
 
         for (i in 0 until videoCount) {
-            canvas.drawCircle(videoCoords[i * 2], videoCoords[i * 2 + 1], body * 0.62f, videoRingPaint)
+            val vx = videoCoords[i * 2]
+            val vy = videoCoords[i * 2 + 1]
+            canvas.drawCircle(vx, vy, body * 0.68f, videoRingPaint)
+            canvas.drawCircle(vx, vy, core * 0.85f, selectionDotPaint)
         }
     }
 
     private fun drawClusters(canvas: Canvas) {
         clusterFillPaint.color = 0x406EE7B7
         clusterRingPaint.color = 0x4D9DF3D3
-        for (cluster in clusters) {
+        val dotsOnly = zoom < 2.0
+        for (i in 0 until clusterCount) {
+            val cluster = clusterPool[i]
+            if (dotsOnly) {
+                val dot = (1.8f + min(2.6f, sqrt(cluster.count.toFloat()) * 0.18f)) * density
+                canvas.drawCircle(cluster.x, cluster.y, dot, clusterDotPaint)
+                continue
+            }
             if (cluster.count < 6) {
                 val dot = if (cluster.count == 1) 2.1f else 2.8f
                 canvas.drawCircle(cluster.x, cluster.y, dot * density, clusterDotPaint)
@@ -945,14 +1021,15 @@ class GlobeView @JvmOverloads constructor(
 
     private fun clusterLabel(count: Int): String = when {
         count >= 10000 -> "10k+"
-        count >= 1000 -> String.format(Locale.US, "%.1fk", count / 1000f)
+        count >= 1000 -> "${count / 1000}.${(count % 1000) / 100}k"
         else -> count.toString()
     }
 
     private fun nearestCluster(x: Float, y: Float, maxDistance: Float): Cluster? {
         var best: Cluster? = null
         var bestDistance = maxDistance * maxDistance
-        for (cluster in clusters) {
+        for (i in 0 until clusterCount) {
+            val cluster = clusterPool[i]
             val dx = cluster.x - x
             val dy = cluster.y - y
             val distance = dx * dx + dy * dy
@@ -965,12 +1042,12 @@ class GlobeView @JvmOverloads constructor(
     }
 
     private fun drawLabels(canvas: Canvas, w: Float, h: Float) {
-        occupied.clear()
+        occupiedCount = 0
         // Keep labels out from under the overlay controls.
-        occupied.add(RectF(0f, 0f, 248f * density, 78f * density))
-        occupied.add(RectF(w - 216f * density, 0f, w, 94f * density))
-        occupied.add(RectF(0f, h - 56f * density, w, h))
-        occupied.add(RectF(w - 64f * density, h - 128f * density, w, h))
+        addOccupied(0f, 0f, 248f * density, 78f * density)
+        addOccupied(w - 216f * density, 0f, w, 94f * density)
+        addOccupied(0f, h - 56f * density, w, h)
+        addOccupied(w - 64f * density, h - 128f * density, w, h)
         val minCountryArea = when {
             zoom < 1.4 -> 220
             zoom < 2.2 -> 80
@@ -1002,6 +1079,12 @@ class GlobeView @JvmOverloads constructor(
         }
     }
 
+    private fun addOccupied(left: Float, top: Float, right: Float, bottom: Float) {
+        if (occupiedCount < labelRectPool.size) {
+            labelRectPool[occupiedCount++].set(left, top, right, bottom)
+        }
+    }
+
     private fun drawLabel(
         canvas: Canvas,
         label: Label,
@@ -1022,15 +1105,15 @@ class GlobeView @JvmOverloads constructor(
 
         val top = if (isCity) py - 7f * density - rectHeight else py - rectHeight / 2f
         labelBounds.set(px - rectWidth / 2f, top, px + rectWidth / 2f, top + rectHeight)
-        for (i in occupied.indices) {
-            if (RectF.intersects(occupied[i], labelBounds)) return false
+        for (i in 0 until occupiedCount) {
+            if (RectF.intersects(labelRectPool[i], labelBounds)) return false
         }
 
         val metrics = paint.fontMetrics
         val baseline = labelBounds.centerY() - (metrics.ascent + metrics.descent) / 2f
         canvas.drawText(label.text, px - textWidth / 2f, baseline, paint)
         if (isCity) canvas.drawCircle(px, py, 1.6f * density, cityDotPaint)
-        occupied.add(RectF(labelBounds))
+        addOccupied(labelBounds.left, labelBounds.top, labelBounds.right, labelBounds.bottom)
         return true
     }
 
@@ -1148,11 +1231,6 @@ class GlobeView @JvmOverloads constructor(
         }
     }
 
-    /**
-     * The OSM style is light: beige land, white roads, black names. A plain invert turns
-     * roads black, which vanishes into the land, so remap luminance instead: text and
-     * road fills become the bright mint ink, land drops to near-black teal.
-     */
     private fun stylizeTile(source: Bitmap): Bitmap {
         val w = source.width
         val h = source.height
@@ -1165,11 +1243,11 @@ class GlobeView @JvmOverloads constructor(
             val b = c and 0xFF
             val lum = (r * 77 + g * 150 + b * 29) shr 8
             val v = when {
-                lum < 90 -> 240 - (lum * 0.16).toInt()          // street names, dark strokes
-                lum < 205 -> 36                                  // buildings, parks, water
-                lum < 244 -> 26                                  // land
-                lum < 252 -> 26 + (lum - 244) * 24               // road fills
-                else -> 214                                     // motorway / white fills
+                lum < 90 -> 240 - (lum * 0.16).toInt()
+                lum < 205 -> 36
+                lum < 244 -> 26
+                lum < 252 -> 26 + (lum - 244) * 24
+                else -> 214
             }
             px[i] = (0xFF shl 24) or ((v * 0.52).toInt() shl 16) or (v shl 8) or (v * 0.93).toInt()
         }
@@ -1190,7 +1268,12 @@ class GlobeView @JvmOverloads constructor(
         val now = SystemClock.uptimeMillis()
         if (now - lastReadout < 120) return
         lastReadout = now
-        onViewChanged?.invoke(-phi, wrap180(-lam), zoom)
+        val currentLat = -phi
+        val currentLon = wrap180(-lam)
+        val currentZoom = zoom
+        post {
+            onViewChanged?.invoke(currentLat, currentLon, currentZoom)
+        }
     }
 
     /* ---------------- projection ---------------- */
@@ -1282,13 +1365,13 @@ class GlobeView @JvmOverloads constructor(
     private fun nearest(x: Float, y: Float, maxDistance: Float): Sighting? {
         var best: Sighting? = null
         var bestDistance = maxDistance * maxDistance
-        for (i in hitItems.indices) {
+        for (i in 0 until hitCount) {
             val dx = hitX[i] - x
             val dy = hitY[i] - y
             val distance = dx * dx + dy * dy
             if (distance < bestDistance) {
                 bestDistance = distance
-                best = hitItems[i]
+                best = hitPins[i]?.sighting
             }
         }
         return best
@@ -1302,12 +1385,6 @@ class GlobeView @JvmOverloads constructor(
                 framePosted = false
                 return
             }
-            // ~60 fps cap: the globe never needs more than that and it halves the fill cost.
-            if (lastFrameNanos != 0L && frameTimeNanos - lastFrameNanos < 15_000_000L) {
-                Choreographer.getInstance().postFrameCallback(this)
-                return
-            }
-            lastFrameNanos = frameTimeNanos
             val now = frameTimeNanos / 1_000_000.0
             var dt = if (lastFrame == 0.0) 16.0 else now - lastFrame
             lastFrame = now
@@ -1342,6 +1419,7 @@ class GlobeView @JvmOverloads constructor(
                     flinging = false
                     lamVelocity = 0.0
                     phiVelocity = 0.0
+                    onInteractionEnd?.invoke()
                 }
                 moving = true
             }
@@ -1434,9 +1512,9 @@ class GlobeView @JvmOverloads constructor(
                     val midX = pointerMidX(event)
                     val midY = pointerMidY(event)
                     val distance = pointerDistance(event)
-                    val sensitivity = 0.24 / zoom
-                    lam += (midX - pinchMidX) * sensitivity
-                    phi = (phi - (midY - pinchMidY) * sensitivity).coerceIn(-85.0, 85.0)
+                    val degPerPx = (180.0 / (PI * radius.coerceAtLeast(1.0))).toFloat()
+                    lam += (midX - pinchMidX) * degPerPx
+                    phi = (phi - (midY - pinchMidY) * degPerPx).coerceIn(-85.0, 85.0)
                     pinchMidX = midX
                     pinchMidY = midY
                     anchorX = midX
@@ -1454,9 +1532,9 @@ class GlobeView @JvmOverloads constructor(
                 val dy = event.y - lastY
                 if (!moved && abs(dx) + abs(dy) > touchSlop) moved = true
                 if (moved) {
-                    val sensitivity = 0.24 / zoom
-                    lam += dx * sensitivity
-                    phi = (phi - dy * sensitivity).coerceIn(-85.0, 85.0)
+                    val degPerPx = (180.0 / (PI * radius.coerceAtLeast(1.0))).toFloat()
+                    lam += dx * degPerPx
+                    phi = (phi - dy * degPerPx).coerceIn(-85.0, 85.0)
                     dirty = true
                 }
                 lastX = event.x
@@ -1485,13 +1563,16 @@ class GlobeView @JvmOverloads constructor(
                     tracker.addMovement(event)
                     tracker.computeCurrentVelocity(1000)
                     if (moved && !pinchUsed) {
-                        val sensitivity = 0.24 / zoom
-                        lamVelocity = tracker.xVelocity * sensitivity / 1000.0
-                        phiVelocity = -tracker.yVelocity * sensitivity / 1000.0
+                        val degPerPx = (180.0 / (PI * radius.coerceAtLeast(1.0))).toFloat()
+                        lamVelocity = tracker.xVelocity * degPerPx / 1000.0
+                        phiVelocity = -tracker.yVelocity * degPerPx / 1000.0
                         flinging = abs(lamVelocity) > 0.008 || abs(phiVelocity) > 0.008
                         if (flinging) ensureFrames()
                     }
                     tracker.recycle()
+                }
+                if (!flinging) {
+                    onInteractionEnd?.invoke()
                 }
 
                 if (!moved && !pinchUsed) {
@@ -1575,7 +1656,7 @@ class GlobeView @JvmOverloads constructor(
         const val MIN_ZOOM = 1.0
         const val MAX_ZOOM = 50000.0
         const val TILE_MIN_ZOOM = 20.0
-        const val CLUSTER_MIN_ZOOM = 3.0
+        const val CLUSTER_MIN_ZOOM = 1.0
         const val CLUSTER_ZOOM = 10.0
         const val CLUSTER_CELL_DP = 42f
         const val HEAT_CELL_DP = 13f
