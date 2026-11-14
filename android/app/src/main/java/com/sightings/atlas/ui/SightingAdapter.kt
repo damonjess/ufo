@@ -33,6 +33,10 @@ class SightingAdapter(
     /** When set as [lat, lon], report rows append the distance from this point. */
     var origin: DoubleArray? = null
 
+    init {
+        setHasStableIds(true)
+    }
+
     fun submit(list: List<Sighting>) {
         items = list
         notifyDataSetChanged()
@@ -40,7 +44,10 @@ class SightingAdapter(
 
     override fun getItemCount(): Int = items.size
 
-    override fun getItemViewType(position: Int): Int = if (videoStyle) 1 else 0
+    override fun getItemId(position: Int): Long = items[position].id.toLong()
+
+    override fun getItemViewType(position: Int): Int =
+        if (videoStyle || items[position].video != null) 1 else 0
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
         val layout = if (viewType == 1) R.layout.item_video else R.layout.item_sighting
@@ -58,6 +65,7 @@ class SightingAdapter(
         private val placeText: TextView? = view.findViewById(R.id.placeText)
         private val subText: TextView? = view.findViewById(R.id.subText)
         private val thumb: ImageView? = view.findViewById(R.id.videoThumb)
+        private val playOverlay: ImageView? = view.findViewById(R.id.videoPlayOverlay)
         private val badge: TextView? = view.findViewById(R.id.videoBadge)
         private val videoTitle: TextView? = view.findViewById(R.id.videoTitle)
         private val videoSub: TextView? = view.findViewById(R.id.videoSub)
@@ -102,13 +110,14 @@ class SightingAdapter(
                 sighting.city,
             ).filter { it.isNotBlank() }.joinToString(" · ")
             videoChannel?.text = if (isTikTok) {
-                "TIKTOK · ${sighting.country}".uppercase(Locale.US)
+                "▶ TIKTOK · ${sighting.country}".uppercase(Locale.US)
             } else {
-                (videoInfo?.channel ?: sighting.country).uppercase(Locale.US)
+                "▶ YOUTUBE · ${(videoInfo?.channel ?: sighting.country)}".uppercase(Locale.US)
             }
 
             if (videoInfo != null && !isTikTok) {
                 thumb?.visibility = View.VISIBLE
+                playOverlay?.visibility = View.VISIBLE
                 thumb?.tag = videoInfo.id
                 if (thumb != null) ThumbCache.load(videoInfo.id, thumb)
                 badge?.visibility = View.GONE
@@ -116,8 +125,9 @@ class SightingAdapter(
                 thumb?.tag = null
                 thumb?.setImageDrawable(null)
                 thumb?.visibility = View.GONE
+                playOverlay?.visibility = View.GONE
                 badge?.visibility = View.VISIBLE
-                badge?.text = "TIKTOK"
+                badge?.text = "▶ TIKTOK"
             }
         }
     }

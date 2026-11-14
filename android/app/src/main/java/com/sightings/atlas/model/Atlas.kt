@@ -45,6 +45,11 @@ data class Sighting(
 ) {
     val hasPosition: Boolean get() = lat.isFinite() && lon.isFinite()
 
+    /** Pre-computed lowercase search haystack to avoid per-item string allocation and lowercase on every filter pass. */
+    val searchHaystack: String = (
+        "$city $region $country $shape $summary $date"
+        ).lowercase(Locale.US)
+
     fun placeLabel(): String = city.ifBlank { region.ifBlank { country } }
 
     /** "Pinehurst, North Carolina, United States" without duplicate segments. */

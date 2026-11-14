@@ -23,6 +23,16 @@
             android:contentDescription="@null"
             android:scaleType="centerCrop" />
 
+        <ImageView
+            android:id="@+id/videoPlayOverlay"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:layout_gravity="center"
+            android:background="@drawable/bg_play_circle"
+            android:contentDescription="@null"
+            android:padding="5dp"
+            android:src="@drawable/ic_play" />
+
         <TextView
             android:id="@+id/videoBadge"
             android:layout_width="46dp"

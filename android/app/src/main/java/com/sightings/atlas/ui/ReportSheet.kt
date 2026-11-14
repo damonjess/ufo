@@ -292,9 +292,19 @@ class ReportSheet(
 
         val web = WebView(context)
         web.setBackgroundColor(Color.BLACK)
-        web.settings.javaScriptEnabled = true
-        web.settings.domStorageEnabled = true
-        web.settings.mediaPlaybackRequiresUserGesture = false
+        web.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            mediaPlaybackRequiresUserGesture = false
+            // Strip "; wv" so TikTok's embed player treats this as a standard mobile browser
+            userAgentString = userAgentString
+                .replace("; wv)", ")")
+                .replace(Regex("Version/\\d+\\.\\d+\\s+"), "")
+        }
+        android.webkit.CookieManager.getInstance().apply {
+            setAcceptCookie(true)
+            setAcceptThirdPartyCookies(web, true)
+        }
         web.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String) {
                 view.evaluateJavascript(COOKIE_BANNER_JS, null)
@@ -304,7 +314,10 @@ class ReportSheet(
             web,
             FrameLayout.LayoutParams(context.dp(240f), context.dp(428f), Gravity.CENTER),
         )
-        web.loadUrl("https://www.tiktok.com/embed/v2/$videoId")
+        web.loadUrl(
+            "https://www.tiktok.com/embed/v2/$videoId",
+            mapOf("Referer" to "https://www.tiktok.com/"),
+        )
         webView = web
     }
 

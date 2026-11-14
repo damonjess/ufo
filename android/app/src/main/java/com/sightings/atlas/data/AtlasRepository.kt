@@ -27,7 +27,7 @@ class WorldData(
 class Dataset(
     val reports: List<Sighting>,
     val videos: List<Sighting>,
-    val social: List<Sighting>,
+    val social: MutableList<Sighting>,
     val world: WorldData,
 ) {
     val minYear: Int
@@ -57,6 +57,9 @@ class Dataset(
 
 object AtlasRepository {
 
+    @Volatile
+    private var cachedDataset: Dataset? = null
+
     private val ENTITY = Regex("&#(\\d{1,6});?|&([a-zA-Z]{2,6});")
 
     /** Source data still carries a few HTML entities such as `&#44;`. */
@@ -84,11 +87,21 @@ object AtlasRepository {
     }
 
     fun load(context: Context): Dataset {
-        val reports = parseReports(JSONArray(read(context, "data/sightings.json")))
-        val videos = parseVideos(JSONArray(read(context, "data/videos.json")))
-        val social = parseSocial(JSONArray(read(context, "data/social.json")))
+        cachedDataset?.let { return it }
+        val descCmp = compareByDescending<Sighting> { it.date }.thenByDescending { it.id }
+        val reports = parseReports(JSONArray(read(context, "data/sightings.json"))).sortedWith(descCmp)
+        val videos = parseVideos(JSONArray(read(context, "data/videos.json"))).sortedWith(descCmp)
+        val social = parseSocial(JSONArray(read(context, "data/social.json"))).toMutableList()
+        val knownClipIds = social.mapNotNull { it.video?.id }.toHashSet()
+        for (cached in LiveTikTokFetcher.loadCached(context)) {
+            val id = cached.video?.id ?: continue
+            if (knownClipIds.add(id)) {
+                social.add(cached)
+            }
+        }
+        social.sortWith(descCmp)
         val world = parseWorld(JSONObject(read(context, "data/world.json")))
-        return Dataset(reports, videos, social, world)
+        return Dataset(reports, videos, social, world).also { cachedDataset = it }
     }
 
     private fun read(context: Context, path: String): String =

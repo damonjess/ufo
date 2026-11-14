@@ -148,5 +148,45 @@
     "lat": 51.42,
     "lon": -0.07,
     "posted": "2025-08-14"
+  },
+  {
+    "n": 16,
+    "id": "7692827901460368662",
+    "handle": "ufo_sightings_channel",
+    "caption": "UAP UFO ENGLAND UK 2026",
+    "place": "England, UK",
+    "lat": 52.8,
+    "lon": -1.5,
+    "posted": "2026-10-04"
+  },
+  {
+    "n": 17,
+    "id": "7663179772037451039",
+    "handle": "realufosighting",
+    "caption": "Unbelievable UFO UAP ALIEN spotted moving quickly over London, UK July 16, 2026",
+    "place": "London, UK",
+    "lat": 51.51,
+    "lon": -0.13,
+    "posted": "2026-07-16"
+  },
+  {
+    "n": 18,
+    "id": "7443024932046441783",
+    "handle": "ufoinsider",
+    "caption": "🇬🇧 Alleged reports and footage of a UAP at Manchester Airport in the UK are going viral on social media 🛸🚨👽",
+    "place": "Manchester Airport, UK",
+    "lat": 53.35,
+    "lon": -2.27,
+    "posted": "2024-11-30"
+  },
+  {
+    "n": 19,
+    "id": "7538212617354087694",
+    "handle": "nypost",
+    "caption": "A British man accidentally caught a possible UFO zooming through the sky in a video of his dog playing fetch at a scenic location in England, according to a report. 🛸",
+    "place": "England, UK",
+    "lat": 52.8,
+    "lon": -1.5,
+    "posted": "2025-08-13"
   }
 ]
