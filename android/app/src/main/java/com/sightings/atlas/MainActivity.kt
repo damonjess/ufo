@@ -32,6 +32,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -154,6 +155,16 @@ class MainActivity : AppCompatActivity() {
     private val ioExecutor = Executors.newSingleThreadExecutor()
     private var pendingExportFormat: String? = null
     private var pendingExportCaseId: String? = null
+    private val exportDocLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            result.data?.data?.let { writePendingExport(it) }
+        } else {
+            pendingExportFormat = null
+            pendingExportCaseId = null
+        }
+    }
     private val prefs by lazy { getSharedPreferences("atlas_prefs", Context.MODE_PRIVATE) }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -1283,7 +1294,7 @@ class MainActivity : AppCompatActivity() {
             type = mimeType
             putExtra(Intent.EXTRA_TITLE, fileName)
         }
-        startActivityForResult(intent, REQUEST_EXPORT_DOC)
+        exportDocLauncher.launch(intent)
     }
 
     private fun shareText(content: String, subject: String, mimeType: String = "text/plain") {
@@ -1295,11 +1306,7 @@ class MainActivity : AppCompatActivity() {
         startActivity(Intent.createChooser(intent, subject))
     }
 
-    @Deprecated("Deprecated in Java")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQUEST_EXPORT_DOC || resultCode != Activity.RESULT_OK) return
-        val uri: Uri = data?.data ?: return
+    private fun writePendingExport(uri: Uri) {
         val format = pendingExportFormat ?: return
         val caseId = pendingExportCaseId
         val snapshot = ArrayList(lastFiltered)
@@ -2019,6 +2026,5 @@ class MainActivity : AppCompatActivity() {
         const val KEY_SAVED = "saved_ids"
         const val KEY_PANEL_OPEN = "panel_open"
         const val REQUEST_LOCATION = 41
-        const val REQUEST_EXPORT_DOC = 42
     }
 }
