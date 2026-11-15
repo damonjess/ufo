@@ -1325,7 +1325,7 @@ class GlobeView @JvmOverloads constructor(
     private var lastPublishedZoom = Double.NaN
 
     private fun publishReadout() {
-        if (fastMoving) return
+        if (dragging || flinging) return
         val now = SystemClock.uptimeMillis()
         if (now - lastReadout < 150) return
         lastReadout = now
@@ -1333,7 +1333,8 @@ class GlobeView @JvmOverloads constructor(
         val currentLon = wrap180(-lam)
         val currentZoom = zoom
 
-        if (abs(currentLat - lastPublishedLat) > 0.05 ||
+        if (lastPublishedLat.isNaN() ||
+            abs(currentLat - lastPublishedLat) > 0.05 ||
             abs(currentLon - lastPublishedLon) > 0.05 ||
             abs(currentZoom - lastPublishedZoom) > 0.01
         ) {
@@ -1471,6 +1472,7 @@ class GlobeView @JvmOverloads constructor(
                     lam = wrap180(animation.targetLam)
                     phi = animation.targetPhi
                     target = null
+                    lastReadout = 0L
                 }
                 moving = true
             } else if (autoRotate && !dragging) {
@@ -1497,7 +1499,10 @@ class GlobeView @JvmOverloads constructor(
             if (abs(zoomTarget - zoom) > 1e-4) {
                 val easing = 1.0 - exp(-dt / 90.0)
                 zoom += (zoomTarget - zoom) * easing
-                if (abs(zoomTarget - zoom) < 0.0005) zoom = zoomTarget
+                if (abs(zoomTarget - zoom) < 0.0005) {
+                    zoom = zoomTarget
+                    lastReadout = 0L
+                }
                 updateProjection()
                 reanchor()
                 moving = true
@@ -1603,16 +1608,22 @@ class GlobeView @JvmOverloads constructor(
                     return true
                 }
 
-                val dx = event.x - lastX
-                val dy = event.y - lastY
-                if (!moved && abs(dx) + abs(dy) > touchSlop) {
-                    moved = true
-                    dragging = true
+                var stepX = event.x - lastX
+                var stepY = event.y - lastY
+                if (!moved) {
+                    val totalDx = event.x - downX
+                    val totalDy = event.y - downY
+                    if (abs(totalDx) + abs(totalDy) > touchSlop) {
+                        moved = true
+                        dragging = true
+                        stepX = totalDx
+                        stepY = totalDy
+                    }
                 }
                 if (moved) {
                     val degPerPx = (180.0 / (PI * radius.coerceAtLeast(1.0))).toFloat()
-                    lam += dx * degPerPx
-                    phi = (phi - dy * degPerPx).coerceIn(-85.0, 85.0)
+                    lam += stepX * degPerPx
+                    phi = (phi - stepY * degPerPx).coerceIn(-85.0, 85.0)
                     dirty = true
                     ensureFrames()
                     invalidate()
