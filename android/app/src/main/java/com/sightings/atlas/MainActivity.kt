@@ -44,6 +44,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.sightings.atlas.data.AtlasRepository
 import com.sightings.atlas.data.BulkExporter
+import com.sightings.atlas.data.BulkImporter
 import com.sightings.atlas.data.CaseFile
 import com.sightings.atlas.data.CaseFileStore
 import com.sightings.atlas.data.Dataset
@@ -163,6 +164,13 @@ class MainActivity : AppCompatActivity() {
         } else {
             pendingExportFormat = null
             pendingExportCaseId = null
+        }
+    }
+    private val importDocLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            result.data?.data?.let { importDocument(it) }
         }
     }
     private val prefs by lazy { getSharedPreferences("atlas_prefs", Context.MODE_PRIVATE) }
@@ -539,6 +547,11 @@ class MainActivity : AppCompatActivity() {
         legend.addView(
             legendChip("⇣ EXPORT", colorOf(R.color.mint), active = false, dot = false) {
                 showExportViewSheet()
+            },
+        )
+        legend.addView(
+            legendChip("⇡ IMPORT", colorOf(R.color.mint), active = false, dot = false) {
+                launchImportPicker()
             },
         )
 
@@ -1286,6 +1299,82 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             .show()
+    }
+
+    private fun launchImportPicker() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+            putExtra(
+                Intent.EXTRA_MIME_TYPES,
+                arrayOf(
+                    "text/csv",
+                    "text/comma-separated-values",
+                    "application/json",
+                    "application/geo+json",
+                    "text/plain",
+                    "application/octet-stream",
+                ),
+            )
+        }
+        importDocLauncher.launch(intent)
+    }
+
+    private fun importDocument(uri: Uri) {
+        val curData = dataset ?: return
+        val newSightings = ArrayList<Sighting>()
+        ioExecutor.execute {
+            val res = runCatching {
+                contentResolver.openInputStream(uri)?.use { stream ->
+                    BulkImporter.importStream(
+                        context = this@MainActivity,
+                        input = stream,
+                        existing = curData.reports,
+                        caseStore = caseStore,
+                        parseSighting = { obj -> AtlasRepository.parseReportObject(obj) },
+                        outNewSightings = newSightings,
+                    )
+                } ?: error("No input stream")
+            }.getOrNull()
+
+            runOnUiThread {
+                if (res != null && res.added > 0) {
+                    val merged = ArrayList<Sighting>(curData.reports.size + newSightings.size)
+                    merged.addAll(curData.reports)
+                    merged.addAll(newSightings)
+                    merged.sortWith(
+                        compareByDescending<Sighting> { it.date }.thenByDescending { it.id },
+                    )
+                    val updated = Dataset(merged, curData.videos, curData.social, curData.world)
+                    dataset = updated
+                    AtlasRepository.cache(updated)
+                    if (yearStart == curData.minYear && yearEnd == curData.maxYear) {
+                        yearStart = updated.minYear
+                        yearEnd = updated.maxYear
+                    }
+                    statReports.text = String.format(Locale.US, "%,d", updated.reports.size)
+                    statCountries.text = updated.countries.toString()
+                    statYears.text = "${updated.minYear}–${updated.maxYear}"
+                    updateTabLabels(updated)
+                    buildTimeline(updated)
+                    buildLegend()
+                    refresh()
+                    Toast.makeText(
+                        this,
+                        "Imported ${res.added} reports (${res.skippedDuplicates} duplicates skipped)",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                } else if (res != null) {
+                    Toast.makeText(
+                        this,
+                        "No new reports added (${res.skippedDuplicates} duplicates skipped)",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                } else {
+                    Toast.makeText(this, "Import failed", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
     }
 
     private fun launchDocumentPicker(fileName: String, mimeType: String) {

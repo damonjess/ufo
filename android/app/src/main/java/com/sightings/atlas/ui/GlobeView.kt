@@ -301,10 +301,15 @@ class GlobeView @JvmOverloads constructor(
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
     }
-    private val videoRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val videoOuterDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
         color = 0xCCFFF8E7.toInt()
-        strokeWidth = 1.2f * density
+    }
+    private val videoInnerDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        color = Color.WHITE
     }
 
     private val selectionRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -1001,11 +1006,11 @@ class GlobeView @JvmOverloads constructor(
             }
         }
 
-        for (i in 0 until videoCount) {
-            val vx = videoCoords[i * 2]
-            val vy = videoCoords[i * 2 + 1]
-            canvas.drawCircle(vx, vy, body * 0.68f, videoRingPaint)
-            canvas.drawCircle(vx, vy, core * 0.85f, selectionDotPaint)
+        if (videoCount > 0) {
+            videoOuterDotPaint.strokeWidth = body * 1.36f
+            videoInnerDotPaint.strokeWidth = core * 1.7f
+            canvas.drawPoints(videoCoords, 0, videoCount * 2, videoOuterDotPaint)
+            canvas.drawPoints(videoCoords, 0, videoCount * 2, videoInnerDotPaint)
         }
     }
 

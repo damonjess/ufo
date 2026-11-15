@@ -89,7 +89,12 @@ object AtlasRepository {
     fun load(context: Context): Dataset {
         cachedDataset?.let { return it }
         val descCmp = compareByDescending<Sighting> { it.date }.thenByDescending { it.id }
-        val reports = parseReports(JSONArray(read(context, "data/sightings.json"))).sortedWith(descCmp)
+        val reports = parseReports(JSONArray(read(context, "data/sightings.json"))).toMutableList()
+        val custom = BulkImporter.loadPersistedJson(context)
+        for (i in 0 until custom.length()) {
+            custom.optJSONObject(i)?.let { reports.add(parseReportObject(it)) }
+        }
+        reports.sortWith(descCmp)
         val videos = parseVideos(JSONArray(read(context, "data/videos.json"))).sortedWith(descCmp)
         val social = parseSocial(JSONArray(read(context, "data/social.json"))).toMutableList()
         val knownClipIds = social.mapNotNull { it.video?.id }.toHashSet()
@@ -107,29 +112,35 @@ object AtlasRepository {
     private fun read(context: Context, path: String): String =
         context.assets.open(path).bufferedReader().use { it.readText() }
 
+    /** Parses one report object; also used by the runtime importer. */
+    fun parseReportObject(o: JSONObject): Sighting = Sighting(
+        id = o.optInt("id"),
+        date = o.optString("d"),
+        year = o.optInt("y"),
+        time = o.optString("t"),
+        city = unescape(o.optString("c")),
+        region = unescape(o.optString("r")),
+        cc = o.optString("cc"),
+        country = unescape(o.optString("co")),
+        shape = unescape(o.optString("s")).ifBlank { "unknown" },
+        duration = unescape(o.optString("du")),
+        summary = unescape(o.optString("x")),
+        lat = o.optDouble("lat", Double.NaN),
+        lon = o.optDouble("lon", Double.NaN),
+    )
+
     private fun parseReports(json: JSONArray): List<Sighting> {
         val out = ArrayList<Sighting>(json.length())
         for (i in 0 until json.length()) {
             val o = json.getJSONObject(i)
-            out.add(
-                Sighting(
-                    id = o.optInt("id", i + 1),
-                    date = o.optString("d"),
-                    year = o.optInt("y"),
-                    time = o.optString("t"),
-                    city = unescape(o.optString("c")),
-                    region = unescape(o.optString("r")),
-                    cc = o.optString("cc"),
-                    country = unescape(o.optString("co")),
-                    shape = unescape(o.optString("s")).ifBlank { "unknown" },
-                    duration = unescape(o.optString("du")),
-                    summary = unescape(o.optString("x")),
-                    lat = o.optDouble("lat", Double.NaN),
-                    lon = o.optDouble("lon", Double.NaN),
-                ),
-            )
+            out.add(parseReportObject(o).copy(id = o.optInt("id", i + 1)))
         }
         return out
+    }
+
+    /** Keep the process cache aligned after a runtime import. */
+    fun cache(dataset: Dataset) {
+        cachedDataset = dataset
     }
 
     private fun parseVideos(json: JSONArray): List<Sighting> {
