@@ -1327,7 +1327,8 @@ class GlobeView @JvmOverloads constructor(
     private fun publishReadout() {
         if (dragging || flinging) return
         val now = SystemClock.uptimeMillis()
-        if (now - lastReadout < 150) return
+        val interval = if (autoRotate) 500L else 150L
+        if (now - lastReadout < interval) return
         lastReadout = now
         val currentLat = -phi
         val currentLon = wrap180(-lam)

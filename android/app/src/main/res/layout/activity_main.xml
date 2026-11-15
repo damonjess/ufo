@@ -175,12 +175,15 @@
             <TextView
                 android:id="@+id/viewReadout"
                 android:layout_width="190dp"
-                android:layout_height="wrap_content"
+                android:layout_height="16dp"
                 android:layout_gravity="top|start"
                 android:layout_marginStart="14dp"
                 android:layout_marginTop="28dp"
                 android:fontFamily="monospace"
+                android:gravity="start|center_vertical"
+                android:includeFontPadding="false"
                 android:letterSpacing="0.1"
+                android:maxLines="1"
                 android:textColor="@color/mint"
                 android:textSize="8sp" />
 

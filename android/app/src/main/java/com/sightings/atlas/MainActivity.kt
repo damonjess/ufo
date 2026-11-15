@@ -13,6 +13,7 @@ import android.os.Handler
 import android.location.Location
 import android.location.LocationManager
 import android.os.Looper
+import android.os.SystemClock
 import android.text.Editable
 import android.text.SpannableString
 import android.text.Spanned
@@ -130,6 +131,8 @@ class MainActivity : AppCompatActivity() {
     private var hoverLon = Double.NaN
     private var hoverZoom = 1.0
     private var hoveringUk = false
+    private var lastReadoutText = ""
+    private var lastUkFetchAt = 0L
     private var panelOpen = false
 
     private val savedIds = HashSet<Int>()
@@ -288,11 +291,15 @@ class MainActivity : AppCompatActivity() {
             hoverLat = lat
             hoverLon = lon
             hoverZoom = zoom
-            viewReadout.text = getString(
+            val readout = getString(
                 R.string.view_readout,
                 coordLabel(lat, lon),
                 zoomLabel(zoom),
             )
+            if (readout != lastReadoutText) {
+                lastReadoutText = readout
+                viewReadout.text = readout
+            }
             val nowHoveringUk = !spinning && LiveTikTokFetcher.isInUkRegion(lat, lon)
             if (nowHoveringUk != hoveringUk) {
                 hoveringUk = nowHoveringUk
@@ -316,7 +323,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         source.text = getString(R.string.report_source)
-        viewReadout.text = getString(R.string.view_readout, "—", "1.0×")
+        lastReadoutText = getString(R.string.view_readout, "—", "1.0×")
+        viewReadout.text = lastReadoutText
         loadingLabel.visibility = View.VISIBLE
     }
 
@@ -650,6 +658,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun triggerUkTikTokFetch() {
         val data = dataset ?: return
+        val now = SystemClock.uptimeMillis()
+        if (now - lastUkFetchAt < 30_000L) return
+        lastUkFetchAt = now
         val existingIds = data.social.mapNotNull { it.video?.id }.toSet()
         LiveTikTokFetcher.fetchUkClipsAsync(this, existingIds) { newClips ->
             runOnUiThread {
