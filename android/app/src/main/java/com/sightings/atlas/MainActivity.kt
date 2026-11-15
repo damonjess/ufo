@@ -141,7 +141,13 @@ class MainActivity : AppCompatActivity() {
 
     private val handler = Handler(Looper.getMainLooper())
     private val refreshRunnable = Runnable { refresh() }
-    private val hoverRefreshRunnable = Runnable { refresh(updateGlobePins = false) }
+    private val hoverRefreshRunnable = Runnable {
+        if (!panelOpen) {
+            adapterDirtyWhileClosed = true
+        } else if (!globe.isInteracting) {
+            refresh(updateGlobePins = false)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -311,14 +317,14 @@ class MainActivity : AppCompatActivity() {
                 if (nowHoveringUk) {
                     triggerUkTikTokFetch()
                 }
-                scheduleHoverRefresh()
+                if (panelOpen) scheduleHoverRefresh() else adapterDirtyWhileClosed = true
             } else if ((nowHoveringUk || (!spinning && tab == 2)) && !globe.isInteracting) {
-                scheduleHoverRefresh()
+                if (panelOpen) scheduleHoverRefresh() else adapterDirtyWhileClosed = true
             }
         }
         globe.onInteractionEnd = {
             if (!spinning && (hoveringUk || tab == 2)) {
-                scheduleHoverRefresh()
+                if (panelOpen) scheduleHoverRefresh() else adapterDirtyWhileClosed = true
             }
         }
         globe.onStreetModeChanged = { active ->
@@ -538,7 +544,7 @@ class MainActivity : AppCompatActivity() {
             if (sighting.year in yearStart..yearEnd) filtered.add(sighting)
             pinReports?.add(sighting)
         }
-        val sortByDistance = !spinning && (tab == 2 || hoveringUk) && hoverLat.isFinite()
+        val sortByDistance = panelOpen && !spinning && (tab == 2 || hoveringUk) && hoverLat.isFinite()
         if (sortByDistance) {
             val ranked = ArrayList<Pair<Sighting, Double>>(filtered.size)
             for (sighting in filtered) {
@@ -661,7 +667,7 @@ class MainActivity : AppCompatActivity() {
             if (hoverLat.isFinite() && LiveTikTokFetcher.isInUkRegion(hoverLat, hoverLon)) {
                 hoveringUk = true
                 triggerUkTikTokFetch()
-                scheduleRefresh()
+                if (panelOpen) scheduleHoverRefresh() else adapterDirtyWhileClosed = true
             }
         }
     }
@@ -854,6 +860,15 @@ class MainActivity : AppCompatActivity() {
         timelineYear.text = "$target ×"
         timelineYear.contentDescription = getString(R.string.timeline_clear_hint, target)
         timelineYear.setTextColor(colorOf(R.color.mint))
+        if (!panelOpen) {
+            adapterDirtyWhileClosed = true
+            if (force && !playing) {
+                timelineRefresh = true
+                refresh(updateGlobePins = false)
+                timelineRefresh = false
+            }
+            return
+        }
         timelineRefresh = true
         refresh(updateGlobePins = false)
         timelineRefresh = false

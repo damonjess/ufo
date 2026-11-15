@@ -185,7 +185,7 @@ class GlobeView @JvmOverloads constructor(
     /** True while the street-tile layer is showing. */
     var onStreetModeChanged: ((Boolean) -> Unit)? = null
 
-    val isInteracting: Boolean get() = dragging || flinging
+    val isInteracting: Boolean get() = fastMoving
 
     private val fastMoving: Boolean
         get() = dragging || flinging || target != null || abs(zoomTarget - zoom) > 1e-4
@@ -652,7 +652,7 @@ class GlobeView @JvmOverloads constructor(
             val fastDraw = fastMoving
             landFillPaint.isAntiAlias = !fastDraw
             landStrokePaint.isAntiAlias = !fastDraw
-            landPath.reset()
+            landPath.rewind()
             buildPath(landPath, if (detailed) landHigh else landLow)
             canvas.drawPath(landPath, landFillPaint)
             if (!fastDraw) {
@@ -661,13 +661,13 @@ class GlobeView @JvmOverloads constructor(
             }
 
             if (zoom < 5.0 && !fastDraw) {
-                graticulePath.reset()
+                graticulePath.rewind()
                 buildPath(graticulePath, graticule)
                 canvas.drawPath(graticulePath, graticulePaint)
             }
 
             if (!autoRotate && !fastMoving) {
-                borderPath.reset()
+                borderPath.rewind()
                 buildPath(borderPath, if (detailed) bordersHigh else bordersLow)
                 borderPaint.color = if (detailed) 0x668FDDEA else 0x4D8FDDEA
                 borderPaint.strokeWidth = (if (detailed) 0.7f else 0.55f) * density
@@ -1265,10 +1265,10 @@ class GlobeView @JvmOverloads constructor(
 
     private fun loadTile(z: Int, x: Int, y: Int): Bitmap? {
         val dir = File(context.cacheDir, "tiles_de")
-        val file = File(dir, "${z}_${x}_$y.png")
+        val file = File(dir, "${z}_${x}_${y}_s.png")
         if (file.exists()) {
             val cached = BitmapFactory.decodeFile(file.absolutePath)
-            if (cached != null) return stylizeTile(cached)
+            if (cached != null) return cached
         }
         return try {
             val connection = URL("https://tile.openstreetmap.de/$z/$x/$y.png").openConnection() as HttpURLConnection
@@ -1281,15 +1281,17 @@ class GlobeView @JvmOverloads constructor(
             connection.doInput = true
             val bytes = connection.inputStream.use { it.readBytes() }
             connection.disconnect()
-            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-            if (bitmap != null) {
-                try {
-                    dir.mkdirs()
-                    file.writeBytes(bytes)
-                } catch (_: Exception) {
+            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+            val styled = stylizeTile(bitmap)
+            bitmap.recycle()
+            try {
+                dir.mkdirs()
+                file.outputStream().use { out ->
+                    styled.compress(Bitmap.CompressFormat.PNG, 100, out)
                 }
+            } catch (_: Exception) {
             }
-            bitmap?.let { stylizeTile(it) }
+            styled
         } catch (_: Exception) {
             null
         }
@@ -1333,7 +1335,7 @@ class GlobeView @JvmOverloads constructor(
     private var lastPublishedZoom = Double.NaN
 
     private fun publishReadout() {
-        if (dragging || flinging) return
+        if (fastMoving) return
         val now = SystemClock.uptimeMillis()
         val interval = if (autoRotate) 500L else 150L
         if (now - lastReadout < interval) return
@@ -1651,7 +1653,6 @@ class GlobeView @JvmOverloads constructor(
                     phi = (phi - stepY * degPerPx).coerceIn(-85.0, 85.0)
                     dirty = true
                     ensureFrames()
-                    invalidate()
                 }
                 lastX = event.x
                 lastY = event.y
