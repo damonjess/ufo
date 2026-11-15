@@ -150,6 +150,7 @@ class MainActivity : AppCompatActivity() {
     private var lastUkFetchAt = 0L
     private var panelMode = 0 // 0 hidden, 1 split, 2 full console
     private val panelOpen: Boolean get() = panelMode != 0
+    private var panelExpandedForList = false
     private var adapterDirtyWhileClosed = false
 
     private val caseStore by lazy { CaseFileStore(this) }
@@ -198,6 +199,7 @@ class MainActivity : AppCompatActivity() {
         bindViews()
         panelMode = if (prefs.getBoolean(KEY_PANEL_OPEN, false)) 1 else 0
         panelToggle.setOnClickListener {
+            panelExpandedForList = false
             panelMode = (panelMode + 1) % 3
             CyberSfx.consoleSlide(opening = panelMode != 0)
             prefs.edit().putBoolean(KEY_PANEL_OPEN, panelOpen).apply()
@@ -438,6 +440,16 @@ class MainActivity : AppCompatActivity() {
 
     private fun setTab(index: Int) {
         if (tab == index && adapter != null) return
+        // Video and social are browse lists: give them the whole console.
+        if (index != 0 && panelMode == 1) {
+            panelMode = 2
+            panelExpandedForList = true
+            applyPanelState()
+        } else if (index == 0 && panelExpandedForList) {
+            panelMode = 1
+            panelExpandedForList = false
+            applyPanelState()
+        }
         CyberSfx.cipherBurst()
         tab = index
         limit = 200
