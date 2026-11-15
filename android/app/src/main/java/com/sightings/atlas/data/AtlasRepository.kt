@@ -149,6 +149,9 @@ object AtlasRepository {
             val o = json.getJSONObject(i)
             val date = o.optString("date")
             val channel = unescape(o.optString("channel"))
+            val lat = o.optDouble("lat", Double.NaN)
+            val lon = o.optDouble("lon", Double.NaN)
+            val isUk = lat.isFinite() && lon.isFinite() && LiveTikTokFetcher.isInUkRegion(lat, lon)
             out.add(
                 Sighting(
                     id = 900000 + o.optInt("n", i + 1),
@@ -156,14 +159,14 @@ object AtlasRepository {
                     year = date.take(4).toIntOrNull() ?: 0,
                     time = "",
                     city = unescape(o.optString("place")),
-                    region = "",
-                    cc = "",
+                    region = if (isUk) "United Kingdom" else "",
+                    cc = if (isUk) "gb" else "",
                     country = channel,
                     shape = "video",
                     duration = "",
                     summary = unescape(o.optString("note")),
-                    lat = o.optDouble("lat", Double.NaN),
-                    lon = o.optDouble("lon", Double.NaN),
+                    lat = lat,
+                    lon = lon,
                     video = VideoInfo(
                         id = o.optString("videoId"),
                         title = unescape(o.optString("title")),
@@ -185,6 +188,7 @@ object AtlasRepository {
             val posted = o.optString("posted")
             val lat = if (o.isNull("lat")) Double.NaN else o.optDouble("lat", Double.NaN)
             val lon = if (o.isNull("lon")) Double.NaN else o.optDouble("lon", Double.NaN)
+            val isUk = lat.isFinite() && lon.isFinite() && LiveTikTokFetcher.isInUkRegion(lat, lon)
             val caption = unescape(o.optString("caption"))
             out.add(
                 Sighting(
@@ -193,8 +197,8 @@ object AtlasRepository {
                     year = posted.take(4).toIntOrNull() ?: 0,
                     time = "",
                     city = unescape(o.optString("place")).ifBlank { "Location not given" },
-                    region = "",
-                    cc = "",
+                    region = if (isUk) "United Kingdom" else "",
+                    cc = if (isUk) "gb" else "",
                     country = "@$handle",
                     shape = "video",
                     duration = "",

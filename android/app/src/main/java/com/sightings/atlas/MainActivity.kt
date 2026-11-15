@@ -844,11 +844,11 @@ class MainActivity : AppCompatActivity() {
         plottedLabel.text = getString(R.string.plotted, String.format(Locale.US, "%,d", plotted))
 
         if (hoveringUk && tab == 0 && !areaSearchActive) {
-            val ukTikToks = data.social
+            val ukClips = (data.videos + data.social)
                 .filter { it.hasPosition && LiveTikTokFetcher.isInUkRegion(it.lat, it.lon) && matches(it, text) }
                 .sortedBy { distanceKm(hoverLat, hoverLon, it.lat, it.lon) }
-            if (ukTikToks.isNotEmpty()) {
-                filtered.addAll(0, ukTikToks)
+            if (ukClips.isNotEmpty()) {
+                filtered.addAll(0, ukClips)
             }
         }
 
@@ -932,13 +932,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun triggerUkTikTokFetch() {
+    private fun triggerUkTikTokFetch(force: Boolean = false) {
         val data = dataset ?: return
         val now = SystemClock.uptimeMillis()
-        if (now - lastUkFetchAt < 30_000L) return
+        if (!force && now - lastUkFetchAt < 30_000L) return
         lastUkFetchAt = now
         val existingIds = data.social.mapNotNull { it.video?.id }.toSet()
-        LiveTikTokFetcher.fetchUkClipsAsync(this, existingIds) { newClips ->
+        LiveTikTokFetcher.fetchUkClipsAsync(this, existingIds, force = force) { newClips ->
             runOnUiThread {
                 val cur = dataset ?: return@runOnUiThread
                 val known = cur.social.mapNotNull { it.video?.id }.toHashSet()
@@ -954,6 +954,9 @@ class MainActivity : AppCompatActivity() {
                     cur.social.sortWith(compareByDescending<Sighting> { it.date }.thenByDescending { it.id })
                     updateTabLabels(cur)
                     refresh()
+                    Toast.makeText(this, "SIGINT: +$added UK clips acquired", Toast.LENGTH_SHORT).show()
+                } else if (force) {
+                    Toast.makeText(this, "SIGINT: UK feed up to date", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -1383,6 +1386,7 @@ class MainActivity : AppCompatActivity() {
             "📁  Case Files & Dossiers (${caseStore.allSavedIds().size} saved)",
             "⌖  ${if (areaSearchActive) "Disable Radar Area Lock" else "Lock Radar to Crosshair (${areaRadiusKm.toInt()} km)"}",
             "📡  ${if (nearLat.isFinite()) "Step / Clear GPS Radar (${nearRadiusKm.toInt()} km)" else "GPS Near-Me Scan"}",
+            "📡  Scan UK Live Feeds (TikTok / oEmbed)",
             "🔥  ${if (globe.heatMode) "Disable Thermal Density Grid" else "Enable Thermal Density Grid"}",
             "📅  ${if (onThisDay) "Clear On-This-Day Filter ($todayKey)" else "Filter: On This Day ($todayKey)"}",
             "⚡  Acquire Random Target",
@@ -1412,16 +1416,17 @@ class MainActivity : AppCompatActivity() {
                         refresh()
                     }
                     2 -> toggleNearMe()
-                    3 -> {
+                    3 -> triggerUkTikTokFetch(force = true)
+                    4 -> {
                         globe.heatMode = !globe.heatMode
                         styleToggle(heatButton, globe.heatMode)
                         if (globe.heatMode) stopSpin()
                     }
-                    4 -> toggleOnThisDay()
-                    5 -> surpriseMe()
-                    6 -> showStats()
-                    7 -> showExportViewSheet()
-                    8 -> {
+                    5 -> toggleOnThisDay()
+                    6 -> surpriseMe()
+                    7 -> showStats()
+                    8 -> showExportViewSheet()
+                    9 -> {
                         CyberSfx.toggle(this)
                         buildLegend()
                     }
