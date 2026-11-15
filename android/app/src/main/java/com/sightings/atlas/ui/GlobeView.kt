@@ -127,10 +127,8 @@ class GlobeView @JvmOverloads constructor(
     private var pinCounts = IntArray(4)
     private var videoCoords = FloatArray(0)
     private var videoCount = 0
-    private var hitX = FloatArray(0)
-    private var hitY = FloatArray(0)
-    private var hitPins: Array<Pin?> = emptyArray()
-    private var hitCount = 0
+
+    private val pinGen = java.util.concurrent.atomic.AtomicInteger(0)
 
     private val clusterPool = Array(1000) { Cluster() }
     private var clusterCount = 0
@@ -340,13 +338,27 @@ class GlobeView @JvmOverloads constructor(
         typeface = Typeface.MONOSPACE
         textSize = 9.5f * scaledDensity
         color = 0xFF9FD7E0.toInt()
-        setShadowLayer(4f * density, 0f, 0f, 0xE6000000.toInt())
+    }
+    private val countryHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = Typeface.MONOSPACE
+        textSize = 9.5f * scaledDensity
+        style = Paint.Style.STROKE
+        strokeWidth = 2.5f * density
+        strokeJoin = Paint.Join.ROUND
+        color = 0xD905090B.toInt()
     }
     private val cityLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = Typeface.MONOSPACE
         textSize = 10f * scaledDensity
         color = 0xFFE6F1F2.toInt()
-        setShadowLayer(4f * density, 0f, 0f, 0xE6000000.toInt())
+    }
+    private val cityHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = Typeface.MONOSPACE
+        textSize = 10f * scaledDensity
+        style = Paint.Style.STROKE
+        strokeWidth = 2.5f * density
+        strokeJoin = Paint.Join.ROUND
+        color = 0xD905090B.toInt()
     }
     private val labelTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = Typeface.MONOSPACE
@@ -421,32 +433,37 @@ class GlobeView @JvmOverloads constructor(
     }
 
     fun setSightings(list: List<Sighting>) {
-        val built = ArrayList<Pin>(list.size)
-        val counts = IntArray(4)
-        var videos = 0
-        for (sighting in list) {
-            if (!sighting.hasPosition) continue
-            val lat = Math.toRadians(sighting.lat)
-            val lon = Math.toRadians(sighting.lon)
-            val cosLat = cos(lat)
-            val x = (cosLat * sin(lon)).toFloat()
-            val y = (cosLat * cos(lon)).toFloat()
-            val z = sin(lat).toFloat()
-            val era = eraOf(sighting.year).ordinal
-            built.add(Pin(sighting, x, y, z, era))
-            if (sighting.video != null) videos++ else counts[era]++
+        val generation = pinGen.incrementAndGet()
+        val source = ArrayList(list)
+        pinExecutor.execute {
+            if (generation != pinGen.get()) return@execute
+            val built = ArrayList<Pin>(source.size)
+            val counts = IntArray(4)
+            var videos = 0
+            for (sighting in source) {
+                if (!sighting.hasPosition) continue
+                val lat = Math.toRadians(sighting.lat)
+                val lon = Math.toRadians(sighting.lon)
+                val cosLat = cos(lat)
+                val x = (cosLat * sin(lon)).toFloat()
+                val y = (cosLat * cos(lon)).toFloat()
+                val z = sin(lat).toFloat()
+                val era = eraOf(sighting.year).ordinal
+                built.add(Pin(sighting, x, y, z, era))
+                if (sighting.video != null) videos++ else counts[era]++
+            }
+            if (generation != pinGen.get()) return@execute
+            post {
+                if (generation != pinGen.get()) return@post
+                pins = built
+                pinCoords = Array(4) { FloatArray(counts[it] * 2) }
+                pinCounts = IntArray(4)
+                videoCoords = FloatArray(videos * 2)
+                videoCount = 0
+                dirty = true
+                invalidate()
+            }
         }
-        pins = built
-        pinCoords = Array(4) { FloatArray(counts[it] * 2) }
-        pinCounts = IntArray(4)
-        videoCoords = FloatArray(videos * 2)
-        videoCount = 0
-        hitX = FloatArray(built.size)
-        hitY = FloatArray(built.size)
-        hitPins = Array(built.size) { null }
-        hitCount = 0
-        dirty = true
-        invalidate()
     }
 
     fun resetView() {
@@ -856,9 +873,6 @@ class GlobeView @JvmOverloads constructor(
     private fun drawMarkers(canvas: Canvas, w: Float, h: Float) {
         pinCounts.fill(0)
         videoCount = 0
-        hitCount = 0
-        var hitIndex = 0
-
         val cl = cosLam.toFloat()
         val sl = sinLam.toFloat()
         val cp = cosPhi.toFloat()
@@ -918,12 +932,6 @@ class GlobeView @JvmOverloads constructor(
                     videoCoords[videoCount * 2 + 1] = py.toFloat()
                     videoCount++
                 }
-                if (hitIndex < hitX.size) {
-                    hitX[hitIndex] = px.toFloat()
-                    hitY[hitIndex] = py.toFloat()
-                    hitPins[hitIndex] = pin
-                    hitIndex++
-                }
                 continue
             }
 
@@ -950,8 +958,6 @@ class GlobeView @JvmOverloads constructor(
                     cluster.count++
                     cluster.sx += px.toDouble()
                     cluster.sy += py.toDouble()
-                    cluster.x = (cluster.sx / cluster.count).toFloat()
-                    cluster.y = (cluster.sy / cluster.count).toFloat()
                 }
                 continue
             }
@@ -963,15 +969,7 @@ class GlobeView @JvmOverloads constructor(
                 coords[index * 2 + 1] = py.toFloat()
                 pinCounts[pin.era] = index + 1
             }
-            if (hitIndex < hitX.size) {
-                hitX[hitIndex] = px.toFloat()
-                hitY[hitIndex] = py.toFloat()
-                hitPins[hitIndex] = pin
-                hitIndex++
-            }
         }
-
-        hitCount = hitIndex
 
         if (heatMode) {
             drawHeat(canvas, heatCounts, heatCols, heatRows, heatCell, heatMax)
@@ -1014,6 +1012,14 @@ class GlobeView @JvmOverloads constructor(
     private fun drawClusters(canvas: Canvas) {
         clusterFillPaint.color = 0x406EE7B7
         clusterRingPaint.color = 0x4D9DF3D3
+        for (i in 0 until clusterCount) {
+            val cluster = clusterPool[i]
+            val count = cluster.count
+            if (count > 0) {
+                cluster.x = (cluster.sx / count).toFloat()
+                cluster.y = (cluster.sy / count).toFloat()
+            }
+        }
         if (fastMoving) {
             if (clusterCount * 2 > clusterDotCoords.size) {
                 clusterDotCoords = FloatArray(max(clusterCount * 2, clusterDotCoords.size * 2))
@@ -1114,7 +1120,7 @@ class GlobeView @JvmOverloads constructor(
             for (label in countryLabels) {
                 if (label.weight < minCountryArea) break
                 if (countriesDrawn >= 26) break
-                if (drawLabel(canvas, label, countryLabelPaint, w, h, isCity = false)) countriesDrawn++
+                if (drawLabel(canvas, label, countryLabelPaint, countryHaloPaint, w, h, isCity = false)) countriesDrawn++
             }
         }
 
@@ -1129,7 +1135,7 @@ class GlobeView @JvmOverloads constructor(
         for (label in cityLabels) {
             if (label.weight < minCityWeight) break
             if (citiesDrawn >= 24) break
-            if (drawLabel(canvas, label, cityLabelPaint, w, h, isCity = true)) citiesDrawn++
+            if (drawLabel(canvas, label, cityLabelPaint, cityHaloPaint, w, h, isCity = true)) citiesDrawn++
         }
     }
 
@@ -1143,6 +1149,7 @@ class GlobeView @JvmOverloads constructor(
         canvas: Canvas,
         label: Label,
         paint: Paint,
+        haloPaint: Paint,
         w: Float,
         h: Float,
         isCity: Boolean,
@@ -1165,6 +1172,7 @@ class GlobeView @JvmOverloads constructor(
 
         val metrics = paint.fontMetrics
         val baseline = labelBounds.centerY() - (metrics.ascent + metrics.descent) / 2f
+        canvas.drawText(label.text, px - textWidth / 2f, baseline, haloPaint)
         canvas.drawText(label.text, px - textWidth / 2f, baseline, paint)
         if (isCity) canvas.drawCircle(px, py, 1.6f * density, cityDotPaint)
         addOccupied(labelBounds.left, labelBounds.top, labelBounds.right, labelBounds.bottom)
@@ -1435,13 +1443,29 @@ class GlobeView @JvmOverloads constructor(
     private fun nearest(x: Float, y: Float, maxDistance: Float): Sighting? {
         var best: Sighting? = null
         var bestDistance = maxDistance * maxDistance
-        for (i in 0 until hitCount) {
-            val dx = hitX[i] - x
-            val dy = hitY[i] - y
+        val cl = cosLam.toFloat()
+        val sl = sinLam.toFloat()
+        val cp = cosPhi.toFloat()
+        val sp = sinPhi.toFloat()
+        val radF = radius.toFloat()
+        val clusterMode = !heatMode && zoom >= CLUSTER_MIN_ZOOM && zoom < CLUSTER_ZOOM
+        for (pin in pins) {
+            if (pin.year < yearFrom || pin.year > yearTo) continue
+            if (clusterMode && !pin.hasVideo) continue
+            val a = pin.x
+            val b = pin.y
+            val c = pin.z
+            val bc = b * cl + a * sl
+            val z = sp * c + cp * bc
+            if (z < 0.015f) continue
+            val px = cx + radF * (a * cl - b * sl)
+            val py = cy - radF * (cp * c - sp * bc)
+            val dx = px - x
+            val dy = py - y
             val distance = dx * dx + dy * dy
             if (distance < bestDistance) {
                 bestDistance = distance
-                best = hitPins[i]?.sighting
+                best = pin.sighting
             }
         }
         return best
@@ -1761,6 +1785,8 @@ class GlobeView @JvmOverloads constructor(
     private fun wrap180(value: Double): Double = ((value % 360) + 540) % 360 - 180
 
     private companion object {
+        val pinExecutor = Executors.newSingleThreadExecutor()
+
         const val MIN_ZOOM = 1.0
         const val MAX_ZOOM = 50000.0
         const val TILE_MIN_ZOOM = 20.0

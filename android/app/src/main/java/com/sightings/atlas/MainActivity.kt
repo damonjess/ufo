@@ -134,6 +134,7 @@ class MainActivity : AppCompatActivity() {
     private var lastReadoutText = ""
     private var lastUkFetchAt = 0L
     private var panelOpen = false
+    private var adapterDirtyWhileClosed = false
 
     private val savedIds = HashSet<Int>()
     private val prefs by lazy { getSharedPreferences("atlas_prefs", Context.MODE_PRIVATE) }
@@ -152,6 +153,10 @@ class MainActivity : AppCompatActivity() {
             panelOpen = !panelOpen
             prefs.edit().putBoolean(KEY_PANEL_OPEN, panelOpen).apply()
             applyPanelState()
+            if (panelOpen && adapterDirtyWhileClosed) {
+                adapterDirtyWhileClosed = false
+                refresh(updateGlobePins = false)
+            }
         }
         applyPanelState()
         savedIds.addAll(
@@ -595,7 +600,12 @@ class MainActivity : AppCompatActivity() {
             else -> null
         }
 
-        adapter?.submit(filtered.take(limit))
+        if (panelOpen) {
+            adapterDirtyWhileClosed = false
+            adapter?.submit(filtered.take(limit))
+        } else {
+            adapterDirtyWhileClosed = true
+        }
         val plural = when (tab) {
             1 -> R.plurals.clips
             2 -> R.plurals.posts
