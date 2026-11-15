@@ -1,6 +1,7 @@
 package com.sightings.atlas
 
 import android.Manifest
+import android.app.Activity
 import android.app.Dialog
 import android.content.Context
 import android.content.Intent
@@ -12,6 +13,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.location.Location
 import android.location.LocationManager
+import android.net.Uri
 import android.os.Looper
 import android.os.SystemClock
 import android.text.Editable
@@ -40,6 +42,9 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.sightings.atlas.data.AtlasRepository
+import com.sightings.atlas.data.BulkExporter
+import com.sightings.atlas.data.CaseFile
+import com.sightings.atlas.data.CaseFileStore
 import com.sightings.atlas.data.Dataset
 import com.sightings.atlas.data.LiveTikTokFetcher
 import com.sightings.atlas.model.Era
@@ -59,8 +64,12 @@ import com.sightings.atlas.ui.colorOf
 import com.sightings.atlas.ui.dp
 import com.sightings.atlas.ui.monoText
 import com.sightings.atlas.ui.pill
+import java.io.StringWriter
 import java.util.Calendar
 import java.util.Locale
+import java.util.concurrent.Executors
+import kotlin.math.abs
+import kotlin.math.cos
 
 class MainActivity : AppCompatActivity() {
 
@@ -136,7 +145,15 @@ class MainActivity : AppCompatActivity() {
     private var panelOpen = false
     private var adapterDirtyWhileClosed = false
 
-    private val savedIds = HashSet<Int>()
+    private val caseStore by lazy { CaseFileStore(this) }
+    private var activeCaseId: String? = null
+    private var areaSearchActive = false
+    private var areaLat = Double.NaN
+    private var areaLon = Double.NaN
+    private var areaRadiusKm = 200.0
+    private val ioExecutor = Executors.newSingleThreadExecutor()
+    private var pendingExportFormat: String? = null
+    private var pendingExportCaseId: String? = null
     private val prefs by lazy { getSharedPreferences("atlas_prefs", Context.MODE_PRIVATE) }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -165,14 +182,15 @@ class MainActivity : AppCompatActivity() {
             }
         }
         applyPanelState()
-        savedIds.addAll(
-            prefs.getStringSet(KEY_SAVED, emptySet()).orEmpty().mapNotNull { it.toIntOrNull() },
-        )
         todayKey = todayKeyString()
         pendingReportId = reportIdFrom(intent)
         buildLegend()
 
-        val adapter = SightingAdapter(videoStyle = false) { openDetail(it) }
+        val adapter = SightingAdapter(
+            videoStyle = false,
+            onClick = { onSightingClick(it) },
+            caseStore = caseStore,
+        )
         this.adapter = adapter
         list.layoutManager = LinearLayoutManager(this)
         list.adapter = adapter
@@ -323,6 +341,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         globe.onInteractionEnd = {
+            if (areaSearchActive) buildLegend()
             if (!spinning && (hoveringUk || tab == 2)) {
                 if (panelOpen) scheduleHoverRefresh() else adapterDirtyWhileClosed = true
             }
@@ -392,7 +411,11 @@ class MainActivity : AppCompatActivity() {
                 else -> R.string.report_source
             },
         )
-        val adapter = SightingAdapter(videoStyle = index != 0) { openDetail(it) }
+        val adapter = SightingAdapter(
+            videoStyle = index != 0,
+            onClick = { onSightingClick(it) },
+            caseStore = caseStore,
+        )
         this.adapter = adapter
         list.adapter = adapter
         refresh()
@@ -429,22 +452,85 @@ class MainActivity : AppCompatActivity() {
     private fun buildLegend() {
         legend.removeAllViews()
         legend.addView(
-            legendChip("All", colorOf(R.color.mint), era == null) {
+            legendChip("All", colorOf(R.color.mint), era == null && !savedOnly && !areaSearchActive) {
                 era = null
+                savedOnly = false
+                activeCaseId = null
+                areaSearchActive = false
                 buildLegend()
                 updateClearVisibility()
                 scheduleRefresh()
             },
         )
-        val savedText = if (savedIds.isEmpty()) "SAVED" else "SAVED ${savedIds.size}"
+
+        val totalSaved = caseStore.allSavedIds().size
+        val activeCase = activeCaseId?.let { caseStore.getCase(it) }
+        val caseLabel = when {
+            activeCase != null -> "${activeCase.name.uppercase(Locale.US)} (${activeCase.reportIds.size})"
+            savedOnly -> "ALL CASES ($totalSaved)"
+            totalSaved > 0 -> "CASES $totalSaved"
+            else -> "CASES"
+        }
         legend.addView(
-            legendChip(savedText, colorOf(R.color.mint), savedOnly, dot = false) {
-                savedOnly = !savedOnly
-                buildLegend()
-                updateClearVisibility()
-                scheduleRefresh()
+            legendChip(caseLabel, colorOf(R.color.mint), savedOnly, dot = false) {
+                showCaseFilesSheet()
             },
         )
+
+        val areaAnchorLat = if (hoverLat.isFinite()) hoverLat else 14.0
+        val areaAnchorLon = if (hoverLon.isFinite()) hoverLon else 18.0
+        val areaMoved = areaSearchActive && hoverLat.isFinite() &&
+            distanceKm(areaLat, areaLon, areaAnchorLat, areaAnchorLon) > 15.0
+
+        val areaChipLabel = if (areaSearchActive) {
+            "⌖ ${areaRadiusKm.toInt()}KM"
+        } else {
+            "⌖ AREA"
+        }
+        legend.addView(
+            legendChip(areaChipLabel, colorOf(R.color.mint), areaSearchActive, dot = false) {
+                stopSpin()
+                if (!areaSearchActive) {
+                    areaSearchActive = true
+                    areaLat = if (hoverLat.isFinite()) hoverLat else 14.0
+                    areaLon = if (hoverLon.isFinite()) hoverLon else 18.0
+                } else {
+                    areaSearchActive = false
+                }
+                buildLegend()
+                updateClearVisibility()
+                refresh()
+            },
+        )
+
+        if (areaSearchActive) {
+            for (rad in doubleArrayOf(50.0, 200.0, 500.0)) {
+                legend.addView(
+                    legendChip("${rad.toInt()}KM", colorOf(R.color.mint), areaRadiusKm == rad, dot = false) {
+                        areaRadiusKm = rad
+                        buildLegend()
+                        refresh()
+                    },
+                )
+            }
+            if (areaMoved) {
+                legend.addView(
+                    legendChip("↻ HERE", colorOf(R.color.mint), active = true, dot = false) {
+                        areaLat = areaAnchorLat
+                        areaLon = areaAnchorLon
+                        buildLegend()
+                        refresh()
+                    },
+                )
+            }
+        }
+
+        legend.addView(
+            legendChip("⇣ EXPORT", colorOf(R.color.mint), active = false, dot = false) {
+                showExportViewSheet()
+            },
+        )
+
         legend.addView(
             legendChip("▶ Video", colorOf(R.color.video_ink), tab == 1, dot = true) {
                 setTab(if (tab == 1) 0 else 1)
@@ -510,15 +596,29 @@ class MainActivity : AppCompatActivity() {
     private fun matchesNonYear(sighting: Sighting, text: String): Boolean {
         if (era != null && eraOf(sighting.year) != era) return false
         if (tab == 0 && shape != null && sighting.shape != shape) return false
-        if (savedOnly && sighting.id !in savedIds) return false
+        if (savedOnly) {
+            val targetCase = activeCaseId?.let { caseStore.getCase(it) }
+            val inCase = if (targetCase != null) {
+                sighting.id in targetCase.reportIds
+            } else {
+                caseStore.isSaved(sighting.id)
+            }
+            if (!inCase) return false
+        }
         if (onThisDay && !sighting.date.endsWith(todayKey)) return false
         if (nightOnly && sighting.video == null && !isNight(sighting.time)) return false
         if (nearLat.isFinite() && sighting.video == null) {
             if (!sighting.hasPosition) return false
             if (distanceKm(nearLat, nearLon, sighting.lat, sighting.lon) > nearRadiusKm) return false
         }
+        if (areaSearchActive && areaLat.isFinite()) {
+            if (!sighting.hasPosition) return false
+            val maxLatDeg = areaRadiusKm / 110.5
+            if (abs(sighting.lat - areaLat) > maxLatDeg) return false
+            if (distanceKm(areaLat, areaLon, sighting.lat, sighting.lon) > areaRadiusKm) return false
+        }
         if (text.isEmpty()) return true
-        return sighting.searchHaystack.contains(text)
+        return sighting.searchHaystack.contains(text) || caseStore.matchesAnnotation(sighting.id, text)
     }
 
     private fun refresh(updateGlobePins: Boolean = true) {
@@ -544,17 +644,26 @@ class MainActivity : AppCompatActivity() {
             if (sighting.year in yearStart..yearEnd) filtered.add(sighting)
             pinReports?.add(sighting)
         }
-        val sortByDistance = panelOpen && !spinning && (tab == 2 || hoveringUk) && hoverLat.isFinite()
-        if (sortByDistance) {
-            // Equirectangular squared distance is enough for local ranking and
-            // packs distance + original index into one Long, avoiding 33k Pairs.
-            val cosLat = kotlin.math.cos(Math.toRadians(hoverLat))
+        val distOriginLat = when {
+            areaSearchActive && areaLat.isFinite() -> areaLat
+            nearLat.isFinite() -> nearLat
+            panelOpen && !spinning && (tab == 2 || hoveringUk) && hoverLat.isFinite() -> hoverLat
+            else -> Double.NaN
+        }
+        val distOriginLon = when {
+            areaSearchActive && areaLat.isFinite() -> areaLon
+            nearLat.isFinite() -> nearLon
+            else -> hoverLon
+        }
+
+        if (distOriginLat.isFinite() && filtered.size > 1) {
+            val cosLat = cos(Math.toRadians(distOriginLat))
             val packed = LongArray(filtered.size)
             for (i in filtered.indices) {
                 val sighting = filtered[i]
                 val d2 = if (sighting.hasPosition) {
-                    val dLat = sighting.lat - hoverLat
-                    val dLon = (sighting.lon - hoverLon) * cosLat
+                    val dLat = sighting.lat - distOriginLat
+                    val dLon = (sighting.lon - distOriginLon) * cosLat
                     ((dLat * dLat + dLon * dLon) * 1e6).toLong().coerceAtMost(0x7FFF_FFFFL)
                 } else {
                     0x7FFF_FFFFL
@@ -596,7 +705,7 @@ class MainActivity : AppCompatActivity() {
         }
         plottedLabel.text = getString(R.string.plotted, String.format(Locale.US, "%,d", plotted))
 
-        if (hoveringUk && tab == 0) {
+        if (hoveringUk && tab == 0 && !areaSearchActive) {
             val ukTikToks = data.social
                 .filter { it.hasPosition && LiveTikTokFetcher.isInUkRegion(it.lat, it.lon) && matches(it, text) }
                 .sortedBy { distanceKm(hoverLat, hoverLon, it.lat, it.lon) }
@@ -607,6 +716,7 @@ class MainActivity : AppCompatActivity() {
 
         lastFiltered = filtered
         adapter?.origin = when {
+            areaSearchActive && areaLat.isFinite() -> doubleArrayOf(areaLat, areaLon)
             nearLat.isFinite() -> doubleArrayOf(nearLat, nearLon)
             hoveringUk && hoverLat.isFinite() -> doubleArrayOf(hoverLat, hoverLon)
             else -> null
@@ -634,7 +744,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateClearVisibility() {
-        val active = era != null || shape != null || savedOnly || nightOnly || onThisDay || nearLat.isFinite() ||
+        val active = era != null || shape != null || savedOnly || nightOnly || onThisDay ||
+            nearLat.isFinite() || areaSearchActive ||
             yearStart > (dataset?.minYear ?: yearStart) ||
             yearEnd < (dataset?.maxYear ?: yearEnd) ||
             query.isNotBlank()
@@ -645,6 +756,10 @@ class MainActivity : AppCompatActivity() {
         era = null
         shape = null
         savedOnly = false
+        activeCaseId = null
+        areaSearchActive = false
+        areaLat = Double.NaN
+        areaLon = Double.NaN
         nightOnly = false
         onThisDay = false
         updateOnThisDay()
@@ -705,22 +820,526 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun onSightingClick(sighting: Sighting) {
+        if (sighting.hasPosition) {
+            globe.flyTo(sighting.lat, sighting.lon, kotlin.math.max(hoverZoom, 3.2))
+        }
+        openDetail(sighting)
+    }
+
     private fun openDetail(sighting: Sighting) {
         // Freeze the spin so the place you opened does not drift while you zoom in.
         stopSpin()
         globe.selected = sighting
+        var sheetRef: ReportSheet? = null
         val sheet = ReportSheet(
             this,
             sighting,
-            saved = sighting.id in savedIds,
-            onSaveToggle = { saved -> setSaved(sighting, saved) },
+            saved = caseStore.isSaved(sighting.id),
+            onSaveToggle = { _ ->
+                showReportCaseDialog(sighting) { isSaved -> sheetRef?.setSaved(isSaved) }
+            },
         )
+        sheetRef = sheet
         sheet.onDismiss = {
             globe.selected = null
             if (openSheet === sheet) openSheet = null
         }
         openSheet = sheet
         sheet.show()
+    }
+
+    /** Per-report dialog to assign Case Files, edit investigator notes, and add #tags. */
+    private fun showReportCaseDialog(sighting: Sighting, onClosed: (Boolean) -> Unit = {}) {
+        val dialog = Dialog(this)
+        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+        val scroll = ScrollView(this)
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20f), dp(18f), dp(20f), dp(36f))
+            setBackgroundResource(R.drawable.bg_sheet)
+        }
+        scroll.addView(card)
+        dialog.setContentView(scroll)
+        dialog.window?.apply {
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            setGravity(Gravity.BOTTOM)
+            addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            setDimAmount(0.6f)
+            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+
+        val selectedCases = caseStore.casesForReport(sighting.id).map { it.id }.toMutableSet()
+        if (selectedCases.isEmpty()) {
+            caseStore.allCases().firstOrNull()?.let { selectedCases.add(it.id) }
+        }
+        val existingAnn = caseStore.annotationFor(sighting.id)
+
+        card.addView(
+            TextView(this).apply {
+                text = "Case File & Notes"
+                typeface = Typeface.SERIF
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+                setTextColor(colorOf(R.color.text))
+            },
+        )
+        card.addView(
+            monoText(9.5f, colorOf(R.color.muted), 0.05f).apply {
+                text = "${sighting.placeLabel()} · ${formatDate(sighting.date)}"
+                setPadding(0, dp(4f), 0, dp(10f))
+            },
+        )
+
+        card.addView(sectionLabel("COLLECTIONS"))
+        val casesContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(6f), 0, dp(4f))
+        }
+        card.addView(casesContainer)
+
+        fun renderCaseCheckboxes() {
+            casesContainer.removeAllViews()
+            for (c in caseStore.allCases()) {
+                val active = c.id in selectedCases
+                val row = monoText(11f, if (active) colorOf(R.color.mint) else colorOf(R.color.text), 0.04f).apply {
+                    text = if (active) "✓  ${c.name} (${c.reportIds.size})" else "○  ${c.name} (${c.reportIds.size})"
+                    setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
+                    setBackgroundResource(if (active) R.drawable.bg_chip_on else R.drawable.bg_chip)
+                    setOnClickListener {
+                        if (c.id in selectedCases) selectedCases.remove(c.id) else selectedCases.add(c.id)
+                        renderCaseCheckboxes()
+                    }
+                }
+                val lp = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply { topMargin = dp(6f) }
+                casesContainer.addView(row, lp)
+            }
+            val addBtn = monoText(10f, colorOf(R.color.mint), 0.08f).apply {
+                text = "+ NEW CASE FILE"
+                setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
+                setOnClickListener {
+                    promptNewCaseName { created ->
+                        selectedCases.add(created.id)
+                        renderCaseCheckboxes()
+                    }
+                }
+            }
+            casesContainer.addView(addBtn)
+        }
+        renderCaseCheckboxes()
+
+        card.addView(sectionLabel("TAGS (COMMA SEPARATED)"))
+        val tagsInput = EditText(this).apply {
+            hint = "e.g. radar, military, multiple-witness"
+            setHintTextColor(colorOf(R.color.dim))
+            setTextColor(colorOf(R.color.text))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setBackgroundResource(R.drawable.bg_field)
+            setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
+            setText(existingAnn?.tags?.joinToString(", ").orEmpty())
+        }
+        card.addView(
+            tagsInput,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                .apply { topMargin = dp(6f) },
+        )
+
+        card.addView(sectionLabel("INVESTIGATOR NOTES"))
+        val noteInput = EditText(this).apply {
+            hint = "Add analysis, cross-references, weather/flight notes…"
+            setHintTextColor(colorOf(R.color.dim))
+            setTextColor(colorOf(R.color.text))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
+            minLines = 3
+            gravity = Gravity.TOP or Gravity.START
+            setBackgroundResource(R.drawable.bg_field)
+            setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
+            setText(existingAnn?.note.orEmpty())
+        }
+        card.addView(
+            noteInput,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                .apply { topMargin = dp(6f) },
+        )
+
+        val actions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+            setPadding(0, dp(18f), 0, 0)
+        }
+        if (caseStore.isSaved(sighting.id) || existingAnn != null) {
+            actions.addView(
+                monoText(10f, colorOf(R.color.muted), 0.08f).apply {
+                    text = "REMOVE ALL"
+                    setPadding(dp(14f), dp(10f), dp(14f), dp(10f))
+                    setOnClickListener {
+                        caseStore.setReportCases(sighting.id, emptySet())
+                        caseStore.setAnnotation(sighting.id, "", emptyList())
+                        buildLegend()
+                        scheduleRefresh()
+                        dialog.dismiss()
+                    }
+                },
+            )
+        }
+        actions.addView(
+            monoText(10f, colorOf(R.color.mint), 0.08f).apply {
+                text = "SAVE TO CASE"
+                setPadding(dp(16f), dp(10f), dp(16f), dp(10f))
+                setBackgroundResource(R.drawable.bg_chip_on)
+                setOnClickListener {
+                    val parsedTags = tagsInput.text?.toString().orEmpty()
+                        .split(',', ';')
+                        .map { it.trim() }
+                        .filter { it.isNotEmpty() }
+                    caseStore.setReportCases(sighting.id, selectedCases)
+                    caseStore.setAnnotation(sighting.id, noteInput.text?.toString().orEmpty(), parsedTags)
+                    buildLegend()
+                    scheduleRefresh()
+                    dialog.dismiss()
+                }
+            },
+        )
+        card.addView(actions)
+        dialog.setOnDismissListener { onClosed(caseStore.isSaved(sighting.id)) }
+        dialog.show()
+    }
+
+    /** Bottom sheet to browse, filter, create, rename, delete, and export Case Files. */
+    private fun showCaseFilesSheet() {
+        val dialog = Dialog(this)
+        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+        val scroll = ScrollView(this)
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20f), dp(18f), dp(20f), dp(40f))
+            setBackgroundResource(R.drawable.bg_sheet)
+        }
+        scroll.addView(card)
+        dialog.setContentView(scroll)
+        dialog.window?.apply {
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            setGravity(Gravity.BOTTOM)
+            addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            setDimAmount(0.6f)
+            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        header.addView(
+            TextView(this).apply {
+                text = "Case Files"
+                typeface = Typeface.SERIF
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 21f)
+                setTextColor(colorOf(R.color.text))
+            },
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+        )
+        header.addView(
+            monoText(10f, colorOf(R.color.mint), 0.08f).apply {
+                text = "+ NEW CASE"
+                setPadding(dp(12f), dp(8f), dp(12f), dp(8f))
+                setBackgroundResource(R.drawable.bg_chip_on)
+                setOnClickListener {
+                    promptNewCaseName {
+                        dialog.dismiss()
+                        showCaseFilesSheet()
+                    }
+                }
+            },
+        )
+        card.addView(header)
+
+        val totalSaved = caseStore.allSavedIds().size
+        val allRow = monoText(
+            11f,
+            if (savedOnly && activeCaseId == null) colorOf(R.color.mint) else colorOf(R.color.text),
+            0.05f,
+        ).apply {
+            text = if (savedOnly && activeCaseId == null) {
+                "★ SHOWING ALL SAVED REPORTS ($totalSaved)  [CLEAR]"
+            } else {
+                "★ FILTER: ALL SAVED REPORTS ($totalSaved)"
+            }
+            setPadding(dp(12f), dp(11f), dp(12f), dp(11f))
+            setBackgroundResource(if (savedOnly && activeCaseId == null) R.drawable.bg_chip_on else R.drawable.bg_chip)
+            setOnClickListener {
+                if (savedOnly && activeCaseId == null) {
+                    savedOnly = false
+                } else {
+                    savedOnly = true
+                    activeCaseId = null
+                }
+                buildLegend()
+                updateClearVisibility()
+                scheduleRefresh()
+                dialog.dismiss()
+            }
+        }
+        card.addView(
+            allRow,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                .apply { topMargin = dp(12f) },
+        )
+
+        card.addView(sectionLabel("COLLECTIONS"))
+
+        for (c in caseStore.allCases()) {
+            val isCurrent = savedOnly && activeCaseId == c.id
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
+                setBackgroundResource(if (isCurrent) R.drawable.bg_chip_on else R.drawable.bg_chip)
+            }
+            row.addView(
+                monoText(11f, if (isCurrent) colorOf(R.color.mint) else colorOf(R.color.text), 0.04f).apply {
+                    text = "${c.name} (${c.reportIds.size})"
+                    setOnClickListener {
+                        if (isCurrent) {
+                            savedOnly = false
+                            activeCaseId = null
+                        } else {
+                            savedOnly = true
+                            activeCaseId = c.id
+                        }
+                        buildLegend()
+                        updateClearVisibility()
+                        scheduleRefresh()
+                        dialog.dismiss()
+                    }
+                },
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+            )
+            row.addView(
+                monoText(9.5f, colorOf(R.color.mint), 0.06f).apply {
+                    text = "SHARE / EXPORT"
+                    setPadding(dp(10f), dp(6f), dp(6f), dp(6f))
+                    setOnClickListener {
+                        dialog.dismiss()
+                        showCaseExportOptions(c)
+                    }
+                },
+            )
+            card.addView(
+                row,
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                    .apply { topMargin = dp(6f) },
+            )
+        }
+
+        dialog.show()
+    }
+
+    private fun promptNewCaseName(onCreated: (CaseFile) -> Unit) {
+        val input = EditText(this).apply {
+            hint = "e.g. UK 2024, Best evidence…"
+            setPadding(dp(16f), dp(12f), dp(16f), dp(12f))
+        }
+        AlertDialog.Builder(this)
+            .setTitle("New Case File")
+            .setView(input)
+            .setPositiveButton("Create") { _, _ ->
+                val name = input.text?.toString().orEmpty()
+                if (name.isNotBlank()) {
+                    val created = caseStore.createCase(name)
+                    buildLegend()
+                    onCreated(created)
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showCaseExportOptions(caseFile: CaseFile) {
+        val options = arrayOf(
+            "Share as Markdown (.md)",
+            "Share as JSON (.json)",
+            "Save Markdown to device…",
+            "Save JSON to device…",
+            "Rename Case File",
+            "Delete Case File",
+        )
+        AlertDialog.Builder(this)
+            .setTitle(caseFile.name)
+            .setItems(options) { _, which ->
+                val data = dataset ?: return@setItems
+                val byId = HashMap<Int, Sighting>(data.reports.size + data.videos.size + data.social.size)
+                for (s in data.reports) byId[s.id] = s
+                for (s in data.videos) byId[s.id] = s
+                for (s in data.social) byId[s.id] = s
+
+                when (which) {
+                    0 -> {
+                        val md = caseStore.exportCaseMarkdown(caseFile, byId)
+                        shareText(md, "${caseFile.name} — Case File", "text/markdown")
+                    }
+                    1 -> {
+                        val json = caseStore.exportCaseJson(caseFile, byId)
+                        shareText(json, "${caseFile.name}.json", "application/json")
+                    }
+                    2 -> {
+                        pendingExportFormat = "case_md"
+                        pendingExportCaseId = caseFile.id
+                        val slug = caseFile.name.lowercase(Locale.US).replace(Regex("[^a-z0-9]+"), "_")
+                        launchDocumentPicker("${slug}_case.md", "text/markdown")
+                    }
+                    3 -> {
+                        pendingExportFormat = "case_json"
+                        pendingExportCaseId = caseFile.id
+                        val slug = caseFile.name.lowercase(Locale.US).replace(Regex("[^a-z0-9]+"), "_")
+                        launchDocumentPicker("${slug}_case.json", "application/json")
+                    }
+                    4 -> {
+                        val input = EditText(this).apply {
+                            setText(caseFile.name)
+                            setPadding(dp(16f), dp(12f), dp(16f), dp(12f))
+                        }
+                        AlertDialog.Builder(this)
+                            .setTitle("Rename Case File")
+                            .setView(input)
+                            .setPositiveButton("Save") { _, _ ->
+                                caseStore.renameCase(caseFile.id, input.text?.toString().orEmpty())
+                                buildLegend()
+                            }
+                            .setNegativeButton("Cancel", null)
+                            .show()
+                    }
+                    5 -> {
+                        caseStore.deleteCase(caseFile.id)
+                        if (activeCaseId == caseFile.id) {
+                            activeCaseId = null
+                            savedOnly = false
+                        }
+                        buildLegend()
+                        scheduleRefresh()
+                    }
+                }
+            }
+            .show()
+    }
+
+    /** Bulk export of the current filtered view (CSV or GeoJSON). */
+    private fun showExportViewSheet() {
+        val count = lastFiltered.size
+        if (count == 0) {
+            Toast.makeText(this, "No reports in current view to export", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val formattedCount = String.format(Locale.US, "%,d", count)
+        val options = arrayOf(
+            "Save CSV ($formattedCount reports) to device…",
+            "Save GeoJSON ($formattedCount reports) to device…",
+            "Share CSV (top ${kotlin.math.min(count, 500)} reports)",
+            "Share GeoJSON (top ${kotlin.math.min(count, 500)} reports)",
+        )
+        AlertDialog.Builder(this)
+            .setTitle("Export Current View ($formattedCount)")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> {
+                        pendingExportFormat = "csv"
+                        pendingExportCaseId = null
+                        launchDocumentPicker("sightings_export_${yearStart}_${yearEnd}.csv", "text/csv")
+                    }
+                    1 -> {
+                        pendingExportFormat = "geojson"
+                        pendingExportCaseId = null
+                        launchDocumentPicker("sightings_export_${yearStart}_${yearEnd}.geojson", "application/geo+json")
+                    }
+                    2 -> {
+                        val slice = lastFiltered.take(500)
+                        val src = when (tab) { 1 -> "video"; 2 -> "social"; else -> "nuforc" }
+                        ioExecutor.execute {
+                            val sw = StringWriter(slice.size * 120)
+                            BulkExporter.writeCsv(sw, slice, caseStore, src)
+                            val payload = sw.toString()
+                            runOnUiThread { shareText(payload, "sightings_export.csv", "text/csv") }
+                        }
+                    }
+                    3 -> {
+                        val slice = lastFiltered.take(500)
+                        val src = when (tab) { 1 -> "video"; 2 -> "social"; else -> "nuforc" }
+                        ioExecutor.execute {
+                            val sw = StringWriter(slice.size * 180)
+                            BulkExporter.writeGeoJson(sw, slice, caseStore, src)
+                            val payload = sw.toString()
+                            runOnUiThread { shareText(payload, "sightings_export.geojson", "application/geo+json") }
+                        }
+                    }
+                }
+            }
+            .show()
+    }
+
+    private fun launchDocumentPicker(fileName: String, mimeType: String) {
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = mimeType
+            putExtra(Intent.EXTRA_TITLE, fileName)
+        }
+        startActivityForResult(intent, REQUEST_EXPORT_DOC)
+    }
+
+    private fun shareText(content: String, subject: String, mimeType: String = "text/plain") {
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = mimeType
+            putExtra(Intent.EXTRA_SUBJECT, subject)
+            putExtra(Intent.EXTRA_TEXT, content)
+        }
+        startActivity(Intent.createChooser(intent, subject))
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQUEST_EXPORT_DOC || resultCode != Activity.RESULT_OK) return
+        val uri: Uri = data?.data ?: return
+        val format = pendingExportFormat ?: return
+        val caseId = pendingExportCaseId
+        val snapshot = ArrayList(lastFiltered)
+        val src = when (tab) { 1 -> "video"; 2 -> "social"; else -> "nuforc" }
+        val ds = dataset
+
+        ioExecutor.execute {
+            val result = runCatching {
+                contentResolver.openOutputStream(uri)?.bufferedWriter(Charsets.UTF_8)?.use { writer ->
+                    when (format) {
+                        "csv" -> BulkExporter.writeCsv(writer, snapshot, caseStore, src)
+                        "geojson" -> BulkExporter.writeGeoJson(writer, snapshot, caseStore, src)
+                        "case_md", "case_json" -> {
+                            val cf = caseId?.let { caseStore.getCase(it) } ?: error("Case file not found")
+                            val byId = HashMap<Int, Sighting>()
+                            if (ds != null) {
+                                for (s in ds.reports) byId[s.id] = s
+                                for (s in ds.videos) byId[s.id] = s
+                                for (s in ds.social) byId[s.id] = s
+                            }
+                            val text = if (format == "case_md") {
+                                caseStore.exportCaseMarkdown(cf, byId)
+                            } else {
+                                caseStore.exportCaseJson(cf, byId)
+                            }
+                            writer.write(text)
+                        }
+                    }
+                } ?: error("No output stream")
+            }
+            runOnUiThread {
+                if (result.isSuccess) {
+                    Toast.makeText(this, "Export saved", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "Export failed", Toast.LENGTH_SHORT).show()
+                }
+                pendingExportFormat = null
+                pendingExportCaseId = null
+            }
+        }
     }
 
     override fun onPause() {
@@ -988,15 +1607,6 @@ class MainActivity : AppCompatActivity() {
         if (source.isEmpty()) return
         stopSpin()
         openDetail(source.random())
-    }
-
-    private fun setSaved(sighting: Sighting, saved: Boolean) {
-        if (saved) savedIds.add(sighting.id) else savedIds.remove(sighting.id)
-        prefs.edit()
-            .putStringSet(KEY_SAVED, savedIds.map { it.toString() }.toSet())
-            .apply()
-        buildLegend()
-        if (savedOnly) scheduleRefresh()
     }
 
     private fun isNight(time: String): Boolean {
@@ -1409,5 +2019,6 @@ class MainActivity : AppCompatActivity() {
         const val KEY_SAVED = "saved_ids"
         const val KEY_PANEL_OPEN = "panel_open"
         const val REQUEST_LOCATION = 41
+        const val REQUEST_EXPORT_DOC = 42
     }
 }

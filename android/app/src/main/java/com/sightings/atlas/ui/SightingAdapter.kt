@@ -12,6 +12,7 @@ import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.sightings.atlas.R
+import com.sightings.atlas.data.CaseFileStore
 import com.sightings.atlas.model.Sighting
 import com.sightings.atlas.model.distanceKm
 import com.sightings.atlas.model.eraOf
@@ -26,6 +27,7 @@ import kotlin.math.roundToInt
 class SightingAdapter(
     private val videoStyle: Boolean,
     private val onClick: (Sighting) -> Unit,
+    private val caseStore: CaseFileStore? = null,
 ) : RecyclerView.Adapter<SightingAdapter.Holder>() {
 
     private var items: List<Sighting> = emptyList()
@@ -55,7 +57,7 @@ class SightingAdapter(
     }
 
     override fun onBindViewHolder(holder: Holder, position: Int) {
-        holder.bind(items[position], origin, onClick)
+        holder.bind(items[position], origin, onClick, caseStore)
     }
 
     class Holder(view: View, private val video: Boolean) : RecyclerView.ViewHolder(view) {
@@ -71,13 +73,18 @@ class SightingAdapter(
         private val videoSub: TextView? = view.findViewById(R.id.videoSub)
         private val videoChannel: TextView? = view.findViewById(R.id.videoChannel)
 
-        fun bind(sighting: Sighting, from: DoubleArray?, onClick: (Sighting) -> Unit) {
+        fun bind(
+            sighting: Sighting,
+            from: DoubleArray?,
+            onClick: (Sighting) -> Unit,
+            caseStore: CaseFileStore?,
+        ) {
             val root = itemView
             root.setOnClickListener { onClick(sighting) }
-            if (video) bindVideo(sighting) else bindReport(sighting, from)
+            if (video) bindVideo(sighting) else bindReport(sighting, from, caseStore)
         }
 
-        private fun bindReport(sighting: Sighting, from: DoubleArray?) {
+        private fun bindReport(sighting: Sighting, from: DoubleArray?, caseStore: CaseFileStore?) {
             val date = shortDate(sighting.date)
             dayText?.text = date.day
             monthYearText?.text = "${date.month} ${date.year}".trim()
@@ -96,6 +103,14 @@ class SightingAdapter(
                     append(" · ")
                     append(distanceKm(from[0], from[1], sighting.lat, sighting.lon).roundToInt())
                     append(" km")
+                }
+                val annotation = caseStore?.annotationFor(sighting.id)
+                if (annotation != null) {
+                    if (annotation.tags.isNotEmpty()) {
+                        append(" · #")
+                        append(annotation.tags.first())
+                    }
+                    if (annotation.note.isNotBlank()) append(" · ✎")
                 }
             }
             eraBar?.setBackgroundColor(eraOf(sighting.year).color)

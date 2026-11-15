@@ -321,6 +321,12 @@ class ReportSheet(
         webView = web
     }
 
+    fun setSaved(saved: Boolean) {
+        val save = dialog?.findViewById<TextView>(R.id.detailSave) ?: return
+        save.text = if (saved) "★" else "☆"
+        save.setTextColor(context.colorOf(if (saved) R.color.mint else R.color.dim))
+    }
+
     fun pausePlayer() {
         webView?.onPause()
     }
