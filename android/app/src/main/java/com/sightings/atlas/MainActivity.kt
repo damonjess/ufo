@@ -546,19 +546,25 @@ class MainActivity : AppCompatActivity() {
         }
         val sortByDistance = panelOpen && !spinning && (tab == 2 || hoveringUk) && hoverLat.isFinite()
         if (sortByDistance) {
-            val ranked = ArrayList<Pair<Sighting, Double>>(filtered.size)
-            for (sighting in filtered) {
-                val distance = if (sighting.hasPosition) {
-                    distanceKm(hoverLat, hoverLon, sighting.lat, sighting.lon)
+            // Equirectangular squared distance is enough for local ranking and
+            // packs distance + original index into one Long, avoiding 33k Pairs.
+            val cosLat = kotlin.math.cos(Math.toRadians(hoverLat))
+            val packed = LongArray(filtered.size)
+            for (i in filtered.indices) {
+                val sighting = filtered[i]
+                val d2 = if (sighting.hasPosition) {
+                    val dLat = sighting.lat - hoverLat
+                    val dLon = (sighting.lon - hoverLon) * cosLat
+                    ((dLat * dLat + dLon * dLon) * 1e6).toLong().coerceAtMost(0x7FFF_FFFFL)
                 } else {
-                    Double.MAX_VALUE
+                    0x7FFF_FFFFL
                 }
-                ranked.add(sighting to distance)
+                packed[i] = (d2 shl 32) or (i.toLong() and 0xFFFF_FFFFL)
             }
-            ranked.sortWith(
-                compareBy<Pair<Sighting, Double>> { it.second }.thenByDescending { it.first.date },
-            )
-            for (i in filtered.indices) filtered[i] = ranked[i].first
+            packed.sort()
+            val copy = ArrayList<Sighting>(filtered.size)
+            for (p in packed) copy.add(filtered[p.toInt()])
+            for (i in filtered.indices) filtered[i] = copy[i]
         } else if (!newestFirst) {
             filtered.reverse()
         }
