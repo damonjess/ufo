@@ -25,6 +25,7 @@ import android.webkit.WebViewClient
 import androidx.core.content.ContextCompat
 import com.sightings.atlas.R
 import com.sightings.atlas.model.Sighting
+import com.sightings.atlas.model.VideoInfo
 import com.sightings.atlas.model.coordLabel
 import com.sightings.atlas.model.formatDate
 import com.sightings.atlas.model.shapeLabel
@@ -131,18 +132,17 @@ class ReportSheet(
                     10f,
                 )
                 val frameParams = thumbFrame.layoutParams
-                frameParams.height = context.dp(452f)
+                frameParams.height = context.dp(600f)
                 thumbFrame.layoutParams = frameParams
-                val playInline = {
-                    startTikTokPlayer(thumbFrame, thumb, play, thumbBadge, video.id)
-                }
-                thumbFrame.setOnClickListener { playInline() }
-                play.setOnClickListener { playInline() }
             } else {
                 ThumbCache.load(video.id, thumb)
-                thumbFrame.setOnClickListener { open() }
-                play.setOnClickListener { open() }
+                play.visibility = View.VISIBLE
             }
+            val playInline = {
+                startInlinePlayer(thumbFrame, thumb, play, thumbBadge, video)
+            }
+            thumbFrame.setOnClickListener { playInline() }
+            play.setOnClickListener { playInline() }
             footLeft.text = if (video.isTikTok) {
                 "TIKTOK · ${video.channel}".uppercase(Locale.US)
             } else {
@@ -277,18 +277,31 @@ class ReportSheet(
         }
     }
 
-    /** Plays a TikTok post in-app through TikTok's official web player. */
-    private fun startTikTokPlayer(
+    /** Plays the clip in an embedded player while keeping the user inside the app. */
+    private fun startInlinePlayer(
         frame: FrameLayout,
         thumb: ImageView,
         play: ImageView,
         badge: TextView,
-        videoId: String,
+        video: VideoInfo,
     ) {
-        if (webView != null || videoId.isBlank()) return
+        if (webView != null || video.id.isBlank()) return
         thumb.visibility = View.GONE
         play.visibility = View.GONE
         badge.visibility = View.GONE
+
+        val isTikTok = video.isTikTok
+        if (!isTikTok) {
+            val width = if (frame.width > 0) {
+                frame.width
+            } else {
+                context.resources.displayMetrics.widthPixels - context.dp(40f)
+            }
+            frame.layoutParams = frame.layoutParams.apply {
+                height = (width * 9 / 16).coerceAtLeast(context.dp(180f))
+            }
+        }
+        frame.background = context.rounded(Color.BLACK, context.colorOf(R.color.line), 10f)
 
         val web = WebView(context)
         web.setBackgroundColor(Color.BLACK)
@@ -296,7 +309,9 @@ class ReportSheet(
             javaScriptEnabled = true
             domStorageEnabled = true
             mediaPlaybackRequiresUserGesture = false
-            // Strip "; wv" so TikTok's embed player treats this as a standard mobile browser
+            allowFileAccess = false
+            allowContentAccess = false
+            // Strip "; wv" so the official players treat this as a standard mobile browser.
             userAgentString = userAgentString
                 .replace("; wv)", ")")
                 .replace(Regex("Version/\\d+\\.\\d+\\s+"), "")
@@ -305,21 +320,72 @@ class ReportSheet(
             setAcceptCookie(true)
             setAcceptThirdPartyCookies(web, true)
         }
-        web.webViewClient = object : WebViewClient() {
-            override fun onPageFinished(view: WebView, url: String) {
-                view.evaluateJavascript(COOKIE_BANNER_JS, null)
-            }
+        web.webViewClient = WebViewClient()
+
+        val layout = if (isTikTok) {
+            FrameLayout.LayoutParams(context.dp(330f), context.dp(578f), Gravity.CENTER)
+        } else {
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                Gravity.CENTER,
+            )
         }
-        frame.addView(
-            web,
-            FrameLayout.LayoutParams(context.dp(240f), context.dp(428f), Gravity.CENTER),
-        )
-        web.loadUrl(
-            "https://www.tiktok.com/embed/v2/$videoId",
-            mapOf("Referer" to "https://www.tiktok.com/"),
-        )
+        frame.addView(web, layout)
+
+        val encodedId = Uri.encode(video.id)
+        if (isTikTok) {
+            loadTikTokPlayer(web, encodedId)
+        } else {
+            loadYouTubePlayer(web, encodedId)
+        }
         webView = web
     }
+
+    /** Hosts the TikTok player in a page so the iframe gets a normal web origin. */
+    private fun loadTikTokPlayer(web: WebView, encodedId: String) {
+        val baseUrl = "https://sightings.app/"
+        val src = "https://www.tiktok.com/player/v1/$encodedId" +
+            "?autoplay=1&loop=0&rel=0&native_context_menu=0"
+        val html = playerPage(src, "TikTok video player")
+        web.loadDataWithBaseURL(baseUrl, html, "text/html", "utf-8", null)
+    }
+
+    /**
+     * YouTube requires the embed request to carry an HTTP Referer identifying the client.
+     * A directly-loaded embed URL has no parent document, so host it in a small local page.
+     */
+    private fun loadYouTubePlayer(web: WebView, encodedId: String) {
+        val baseUrl = "https://sightings.app/"
+        val origin = "https://sightings.app"
+        val src = "https://www.youtube.com/embed/$encodedId" +
+            "?autoplay=1&playsinline=1&rel=0&modestbranding=1&fs=1" +
+            "&enablejsapi=1&origin=${Uri.encode(origin)}" +
+            "&widget_referrer=${Uri.encode(baseUrl)}"
+        web.loadDataWithBaseURL(baseUrl, playerPage(src, "YouTube video player"), "text/html", "utf-8", null)
+    }
+
+    private fun playerPage(src: String, title: String): String = """
+        <!doctype html>
+        <html>
+        <head>
+        <meta name="referrer" content="strict-origin-when-cross-origin">
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+        <style>
+        html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+        iframe { display: block; width: 100%; height: 100%; border: 0; }
+        </style>
+        </head>
+        <body>
+        <iframe
+            src="${src.replace("&", "&amp;")}"
+            title="$title"
+            referrerpolicy="strict-origin-when-cross-origin"
+            allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+            allowfullscreen></iframe>
+        </body>
+        </html>
+    """.trimIndent()
 
     fun setSaved(saved: Boolean) {
         val save = dialog?.findViewById<TextView>(R.id.detailSave) ?: return
@@ -357,42 +423,5 @@ class ReportSheet(
         params.marginEnd = context.dp(6f)
         tv.layoutParams = params
         return tv
-    }
-
-    private companion object {
-        const val COOKIE_BANNER_JS =
-            "(function(){" +
-                "var done=false,n=0;" +
-                "function els(root){var out=[];" +
-                "(function walk(node){var list;" +
-                "try{list=node.querySelectorAll('*');}catch(e){list=[];}" +
-                "for(var i=0;i<list.length;i++){var el=list[i];out.push(el);" +
-                "try{if(el.shadowRoot)walk(el.shadowRoot);}catch(e){}}" +
-                "})(root);return out;}" +
-                "function clickConsent(){" +
-                "var list=els(document);" +
-                "for(var i=0;i<list.length;i++){var el=list[i];" +
-                "var t=(el.innerText||'').trim().toLowerCase();" +
-                "if(t==='allow all'||t==='decline optional cookies'){" +
-                "var target=el;" +
-                "try{if(el.closest){var c=el.closest('button,[role=button]');if(c)target=c;}}catch(e){}" +
-                "try{target.click();}catch(e){}" +
-                "return t;}}" +
-                "return null;}" +
-                "function hideRemnants(){" +
-                "var list=els(document);" +
-                "for(var i=0;i<list.length;i++){var el=list[i];" +
-                "var t=(el.innerText||'').trim().toLowerCase();" +
-                "if(t==='allow all'||t==='decline optional cookies'){" +
-                "var p=el;try{var c=el.closest('div');if(c)p=c;}catch(e){}" +
-                "p.style.setProperty('display','none','important');}}}" +
-                "var timer=setInterval(function(){" +
-                "if(done||++n>80){clearInterval(timer);return;}" +
-                "var c=clickConsent();" +
-                "if(c){done=true;clearInterval(timer);" +
-                "setTimeout(hideRemnants,1500);setTimeout(hideRemnants,5000);return;}" +
-                "if(n===6){hideRemnants();}" +
-                "},500);" +
-                "})();"
     }
 }
