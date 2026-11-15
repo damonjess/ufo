@@ -168,6 +168,7 @@ class GlobeView @JvmOverloads constructor(
         set(value) {
             if (selectedSighting?.id != value?.id && value != null) {
                 selectionLockStart = SystemClock.uptimeMillis()
+                CyberSfx.targetLock()
             }
             selectedSighting = value
             if (value != null && value.hasPosition) {
@@ -218,6 +219,8 @@ class GlobeView @JvmOverloads constructor(
     private var lamVelocity = 0.0
     private var phiVelocity = 0.0
     private var flinging = false
+    private var lastTickStepLon = Int.MIN_VALUE
+    private var lastTickStepLat = Int.MIN_VALUE
 
     private var dragging = false
     private var moved = false
@@ -449,6 +452,9 @@ class GlobeView @JvmOverloads constructor(
 
     /** Projects the active area search onto the globe as a sweeping radar dome. */
     fun setRadarLock(active: Boolean, lat: Double, lon: Double, radiusKm: Double) {
+        if (active && (!radarActive || radarRadiusKm != radiusKm)) {
+            CyberSfx.radarPing()
+        }
         radarActive = active
         radarLat = lat
         radarLon = lon
@@ -535,6 +541,7 @@ class GlobeView @JvmOverloads constructor(
     }
 
     fun zoomBy(factor: Double) {
+        CyberSfx.zoomPulse(factor >= 1.0)
         val extra = when {
             zoomTarget > 60.0 -> 1.7
             zoomTarget > 12.0 -> 1.25
@@ -1622,6 +1629,15 @@ class GlobeView @JvmOverloads constructor(
         sinLam = sin(centerLon)
         cosPhi = cos(centerLat)
         sinPhi = sin(centerLat)
+        if (dragging || flinging) {
+            val stepLon = (lam / 8.0).roundToInt()
+            val stepLat = (phi / 8.0).roundToInt()
+            if (stepLon != lastTickStepLon || stepLat != lastTickStepLat) {
+                lastTickStepLon = stepLon
+                lastTickStepLat = stepLat
+                CyberSfx.rotaryTick(zoom)
+            }
+        }
     }
 
     private fun vec(lonRad: Double, latRad: Double, out: DoubleArray) {
@@ -1979,6 +1995,7 @@ class GlobeView @JvmOverloads constructor(
                         anchorY = event.y
                         anchorGeo = inverse(event.x, event.y)
                         zoomTarget = (zoomTarget * 2.6).coerceAtMost(MAX_ZOOM)
+                        CyberSfx.zoomPulse(true)
                         if (zoomTarget > 3.0) onUserRotate?.invoke()
                         dirty = true
                         ensureFrames()
@@ -2002,6 +2019,7 @@ class GlobeView @JvmOverloads constructor(
                                     SystemClock.uptimeMillis(),
                                 )
                                 zoomTarget = (zoomTarget * 2.8).coerceAtMost(MAX_ZOOM)
+                                CyberSfx.zoomPulse(true)
                                 onUserRotate?.invoke()
                                 dirty = true
                                 ensureFrames()

@@ -56,6 +56,7 @@ import com.sightings.atlas.model.distanceKm
 import com.sightings.atlas.model.eraOf
 import com.sightings.atlas.model.formatDate
 import com.sightings.atlas.model.shapeLabel
+import com.sightings.atlas.ui.CyberSfx
 import com.sightings.atlas.ui.GlobeView
 import com.sightings.atlas.ui.HistogramView
 import com.sightings.atlas.ui.ReportSheet
@@ -193,10 +194,12 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_main)
+        CyberSfx.init(this)
         bindViews()
         panelMode = if (prefs.getBoolean(KEY_PANEL_OPEN, false)) 1 else 0
         panelToggle.setOnClickListener {
             panelMode = (panelMode + 1) % 3
+            CyberSfx.consoleSlide(opening = panelMode != 0)
             prefs.edit().putBoolean(KEY_PANEL_OPEN, panelOpen).apply()
             applyPanelState()
             if (panelOpen && adapterDirtyWhileClosed) {
@@ -435,6 +438,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun setTab(index: Int) {
         if (tab == index && adapter != null) return
+        CyberSfx.cipherBurst()
         tab = index
         limit = 200
         updateTabs()
@@ -1129,6 +1133,7 @@ class MainActivity : AppCompatActivity() {
                         .filter { it.isNotEmpty() }
                     caseStore.setReportCases(sighting.id, selectedCases)
                     caseStore.setAnnotation(sighting.id, noteInput.text?.toString().orEmpty(), parsedTags)
+                    CyberSfx.confirm()
                     buildLegend()
                     scheduleRefresh()
                     dialog.dismiss()
@@ -1310,10 +1315,12 @@ class MainActivity : AppCompatActivity() {
                 when (which) {
                     0 -> {
                         val md = caseStore.exportCaseMarkdown(caseFile, byId)
+                        CyberSfx.confirm()
                         shareText(md, "${caseFile.name} — Case File", "text/markdown")
                     }
                     1 -> {
                         val json = caseStore.exportCaseJson(caseFile, byId)
+                        CyberSfx.confirm()
                         shareText(json, "${caseFile.name}.json", "application/json")
                     }
                     2 -> {
@@ -1359,6 +1366,7 @@ class MainActivity : AppCompatActivity() {
 
     /** One-thumb command palette for the tactical console. */
     private fun showOpsMenu() {
+        CyberSfx.cipherBurst()
         val items = arrayOf(
             "📁  Case Files & Dossiers (${caseStore.allSavedIds().size} saved)",
             "⌖  ${if (areaSearchActive) "Disable Radar Area Lock" else "Lock Radar to Crosshair (${areaRadiusKm.toInt()} km)"}",
@@ -1368,6 +1376,7 @@ class MainActivity : AppCompatActivity() {
             "⚡  Acquire Random Target",
             "📊  Global SIGINT Telemetry (Stats)",
             "⇣  Export View (${String.format(Locale.US, "%,d", lastFiltered.size)} records)…",
+            if (CyberSfx.enabled) "🔊  Audio Telemetry: ONLINE (Mute)" else "🔇  Audio Telemetry: MUTED (Enable)",
         )
         AlertDialog.Builder(this)
             .setTitle(">_ SIGINT // TACTICAL OPS")
@@ -1400,6 +1409,10 @@ class MainActivity : AppCompatActivity() {
                     5 -> surpriseMe()
                     6 -> showStats()
                     7 -> showExportViewSheet()
+                    8 -> {
+                        CyberSfx.toggle(this)
+                        buildLegend()
+                    }
                 }
             }
             .show()
@@ -1440,7 +1453,10 @@ class MainActivity : AppCompatActivity() {
                             val sw = StringWriter(slice.size * 120)
                             BulkExporter.writeCsv(sw, slice, caseStore, src)
                             val payload = sw.toString()
-                            runOnUiThread { shareText(payload, "sightings_export.csv", "text/csv") }
+                            runOnUiThread {
+                                CyberSfx.confirm()
+                                shareText(payload, "sightings_export.csv", "text/csv")
+                            }
                         }
                     }
                     3 -> {
@@ -1450,7 +1466,10 @@ class MainActivity : AppCompatActivity() {
                             val sw = StringWriter(slice.size * 180)
                             BulkExporter.writeGeoJson(sw, slice, caseStore, src)
                             val payload = sw.toString()
-                            runOnUiThread { shareText(payload, "sightings_export.geojson", "application/geo+json") }
+                            runOnUiThread {
+                                CyberSfx.confirm()
+                                shareText(payload, "sightings_export.geojson", "application/geo+json")
+                            }
                         }
                     }
                 }
@@ -1516,6 +1535,7 @@ class MainActivity : AppCompatActivity() {
                     buildTimeline(updated)
                     buildLegend()
                     refresh()
+                    CyberSfx.confirm()
                     Toast.makeText(
                         this,
                         "Imported ${res.added} reports (${res.skippedDuplicates} duplicates skipped)",
@@ -1585,6 +1605,7 @@ class MainActivity : AppCompatActivity() {
             }
             runOnUiThread {
                 if (result.isSuccess) {
+                    CyberSfx.confirm()
                     Toast.makeText(this, "Export saved", Toast.LENGTH_SHORT).show()
                 } else {
                     Toast.makeText(this, "Export failed", Toast.LENGTH_SHORT).show()
@@ -1702,6 +1723,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun scrubTo(year: Int) {
         if (dataset == null) return
+        val frac = (year - reportMinYear).toFloat() /
+            (reportMaxYear - reportMinYear).coerceAtLeast(1)
+        CyberSfx.scrubTick(frac)
         if (tab != 0) setTab(0)
         if (playing) {
             playing = false
@@ -2129,6 +2153,9 @@ class MainActivity : AppCompatActivity() {
         range.onChange = { start, end ->
             yearStart = start
             yearEnd = end
+            val frac = (end - data.minYear).toFloat() /
+                (data.maxYear - data.minYear).coerceAtLeast(1)
+            CyberSfx.scrubTick(frac)
             rangeValue.text = getString(R.string.range_value, start, end)
             histogram.update(bins, binStart, 5, start, end)
             updateClearVisibility()

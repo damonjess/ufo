@@ -82,5 +82,6 @@ fun TextView.scrambleText(target: String, durationMs: Long = 240L) {
         }
     }
     scrambleRunnables[view] = runnable
+    CyberSfx.cipherBurst()
     post(runnable)
 }
