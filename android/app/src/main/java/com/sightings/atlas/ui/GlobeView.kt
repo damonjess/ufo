@@ -1726,7 +1726,11 @@ class GlobeView @JvmOverloads constructor(
                         lastTapTime = now
                         lastTapX = event.x
                         lastTapY = event.y
-                        if (!heatMode && zoom >= CLUSTER_MIN_ZOOM && zoom < CLUSTER_ZOOM) {
+                        val videoTap = nearest(event.x, event.y, 24f * density)
+                        if (videoTap != null) {
+                            pendingTap = videoTap
+                            postDelayed(tapRunnable, doubleTapTimeout.toLong())
+                        } else if (!heatMode && zoom >= CLUSTER_MIN_ZOOM && zoom < CLUSTER_ZOOM) {
                             val cluster = nearestCluster(event.x, event.y, 26f * density)
                             if (cluster != null) {
                                 lastTapTime = 0L
@@ -1743,9 +1747,12 @@ class GlobeView @JvmOverloads constructor(
                                 ensureFrames()
                                 return true
                             }
+                            pendingTap = null
+                            postDelayed(tapRunnable, doubleTapTimeout.toLong())
+                        } else {
+                            pendingTap = null
+                            postDelayed(tapRunnable, doubleTapTimeout.toLong())
                         }
-                        pendingTap = nearest(event.x, event.y, 24f * density)
-                        postDelayed(tapRunnable, doubleTapTimeout.toLong())
                     }
                 }
                 dirty = true
