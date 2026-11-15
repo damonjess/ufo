@@ -140,6 +140,14 @@ class GlobeView @JvmOverloads constructor(
     private var occupiedCount = 0
 
     private var selectedSighting: Sighting? = null
+    private var selectionLockStart = 0L
+
+    // Radar lock state, synced from MainActivity's area search controls.
+    private var radarActive = false
+    private var radarLat = Double.NaN
+    private var radarLon = Double.NaN
+    private var radarRadiusKm = 200.0
+    private val radarArcRect = RectF()
 
     /** Inclusive year window used by timeline playback; full range by default. */
     private var yearFrom = 0
@@ -158,6 +166,9 @@ class GlobeView @JvmOverloads constructor(
     var selected: Sighting?
         get() = selectedSighting
         set(value) {
+            if (selectedSighting?.id != value?.id && value != null) {
+                selectionLockStart = SystemClock.uptimeMillis()
+            }
             selectedSighting = value
             if (value != null && value.hasPosition) {
                 target = Target(lam, phi, -value.lon, (-value.lat).coerceIn(-72.0, 72.0), SystemClock.uptimeMillis())
@@ -189,6 +200,15 @@ class GlobeView @JvmOverloads constructor(
 
     private val fastMoving: Boolean
         get() = dragging || flinging || target != null || abs(zoomTarget - zoom) > 1e-4
+
+    /** Only animate the HUD while the lock sequence is playing or radar is sweeping. */
+    private val hudAnimating: Boolean
+        get() = isShown && (
+            radarActive || (
+                selectedSighting != null &&
+                    SystemClock.uptimeMillis() - selectionLockStart < LOCK_ANIMATION_MS
+                )
+            )
 
     private var lam = DEFAULT_LAM
     private var phi = DEFAULT_PHI
@@ -289,6 +309,22 @@ class GlobeView @JvmOverloads constructor(
         strokeWidth = 1f * density
     }
 
+    // Cyber HUD / radar paints.
+    private val hudPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1f * density
+        color = 0x4800F0FF
+    }
+    private val hudFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = 0x1600FF9C
+    }
+    private val hudTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = Typeface.MONOSPACE
+        textSize = 7.5f * scaledDensity
+        color = 0x8800F0FF.toInt()
+    }
+
     private val pinHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
@@ -300,6 +336,11 @@ class GlobeView @JvmOverloads constructor(
     private val pinCorePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
+    }
+    private val videoRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = 0xCCFFF8E7.toInt()
+        strokeWidth = 1.2f * density
     }
     private val videoOuterDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -403,6 +444,17 @@ class GlobeView @JvmOverloads constructor(
         countryLabels = buildLabels(data.countries, upper = true)
         cityLabels = buildLabels(data.cities, upper = false)
         dirty = true
+        invalidate()
+    }
+
+    /** Projects the active area search onto the globe as a sweeping radar dome. */
+    fun setRadarLock(active: Boolean, lat: Double, lon: Double, radiusKm: Double) {
+        radarActive = active
+        radarLat = lat
+        radarLon = lon
+        radarRadiusKm = radiusKm
+        dirty = true
+        if (active) ensureFrames()
         invalidate()
     }
 
@@ -682,9 +734,11 @@ class GlobeView @JvmOverloads constructor(
 
         canvas.drawCircle(centerX, centerY, globeRadius, rimPaint)
 
+        drawRadarZone(canvas)
         drawMarkers(canvas, w, h)
         if (!fastMoving) drawLabels(canvas, w, h)
         drawSelection(canvas, h)
+        drawCyberHud(canvas, w, h, globeRadius)
         dirty = false
         publishReadout()
     }
@@ -727,6 +781,32 @@ class GlobeView @JvmOverloads constructor(
             canvas.drawRect(stars[i], stars[i + 1], stars[i] + stars[i + 2], stars[i + 1] + stars[i + 2], starPaint)
             i += 4
         }
+
+        // Subtle CRT horizontal scanlines.
+        starPaint.color = 0x0A96E2F0
+        starPaint.alpha = 255
+        val scanStep = (3f * density).coerceAtLeast(2f)
+        var scanY = 0f
+        while (scanY < h) {
+            canvas.drawLine(0f, scanY, w.toFloat(), scanY, starPaint)
+            scanY += scanStep
+        }
+
+        // Faint tactical cross-tick grid; baked once, not per frame.
+        starPaint.color = 0x1496E2F0
+        val gridStep = 56f * density
+        val tick = 2.5f * density
+        var gridX = gridStep
+        while (gridX < w) {
+            var gridY = gridStep
+            while (gridY < h) {
+                canvas.drawLine(gridX - tick, gridY, gridX + tick, gridY, starPaint)
+                canvas.drawLine(gridX, gridY - tick, gridX, gridY + tick, starPaint)
+                gridY += gridStep
+            }
+            gridX += gridStep
+        }
+        starPaint.color = 0xFFCFE8EF.toInt()
         starPaint.alpha = 255
         background = bitmap
     }
@@ -1006,11 +1086,18 @@ class GlobeView @JvmOverloads constructor(
             }
         }
 
-        if (videoCount > 0) {
+        if (videoCount > VIDEO_BATCH_THRESHOLD) {
             videoOuterDotPaint.strokeWidth = body * 1.36f
             videoInnerDotPaint.strokeWidth = core * 1.7f
             canvas.drawPoints(videoCoords, 0, videoCount * 2, videoOuterDotPaint)
             canvas.drawPoints(videoCoords, 0, videoCount * 2, videoInnerDotPaint)
+        } else {
+            for (i in 0 until videoCount) {
+                val vx = videoCoords[i * 2]
+                val vy = videoCoords[i * 2 + 1]
+                canvas.drawCircle(vx, vy, body * 0.68f, videoRingPaint)
+                canvas.drawCircle(vx, vy, core * 0.85f, selectionDotPaint)
+            }
         }
     }
 
@@ -1184,6 +1271,7 @@ class GlobeView @JvmOverloads constructor(
         return true
     }
 
+    /** Satellite lock-on brackets, sonar shockwave and decrypted target callout. */
     private fun drawSelection(canvas: Canvas, h: Float) {
         val sighting = selectedSighting ?: return
         if (!sighting.hasPosition) return
@@ -1191,30 +1279,191 @@ class GlobeView @JvmOverloads constructor(
         if (curVec[2] < 0.015) return
         val px = (cx + radius * curVec[0]).toFloat()
         val py = (cy - radius * curVec[1]).toFloat()
-        val accent = if (sighting.video != null) 0xFFFFF8E7.toInt() else eraOf(sighting.year).color
-        val pulse = 1.0 + sin(SystemClock.uptimeMillis() / 420.0) * 0.12
+
+        val now = SystemClock.uptimeMillis()
+        val elapsed = (now - selectionLockStart).coerceAtLeast(0L)
+        val lockProgress = (elapsed / 320f).coerceIn(0f, 1f)
+        val eased = 1f - (1f - lockProgress).pow(3f)
+        val accent = if (sighting.video != null) 0xFFFFC857.toInt() else 0xFF6EE7B7.toInt()
+        val pulse = 1f + sin(now / 200.0).toFloat() * 0.10f
+        val boxScale = (2.6f - 1.6f * eased) * pulse
+        val rotDeg = (1f - eased) * 45f
 
         selectionRingPaint.color = accent
-        canvas.drawCircle(px, py, (11f * density * pulse).toFloat(), selectionRingPaint)
-        canvas.drawCircle(px, py, 3.2f * density, selectionDotPaint)
+        selectionRingPaint.strokeWidth = 1.4f * density
+        val box = 11f * density * boxScale
+        val leg = 4.5f * density
+
+        if (elapsed < 650L) {
+            val waveT = (elapsed / 650f).coerceIn(0f, 1f)
+            val waveAlpha = ((1f - waveT) * 190f).toInt().coerceIn(0, 190)
+            selectionRingPaint.alpha = waveAlpha
+            canvas.drawCircle(px, py, (6f + 30f * waveT) * density, selectionRingPaint)
+            selectionRingPaint.alpha = 255
+        }
+
+        canvas.save()
+        canvas.rotate(rotDeg, px, py)
+        canvas.drawLine(px - box, py - box, px - box + leg, py - box, selectionRingPaint)
+        canvas.drawLine(px - box, py - box, px - box, py - box + leg, selectionRingPaint)
+        canvas.drawLine(px + box, py - box, px + box - leg, py - box, selectionRingPaint)
+        canvas.drawLine(px + box, py - box, px + box, py - box + leg, selectionRingPaint)
+        canvas.drawLine(px - box, py + box, px - box + leg, py + box, selectionRingPaint)
+        canvas.drawLine(px - box, py + box, px - box, py + box - leg, selectionRingPaint)
+        canvas.drawLine(px + box, py + box, px + box - leg, py + box, selectionRingPaint)
+        canvas.drawLine(px + box, py + box, px + box, py + box - leg, selectionRingPaint)
+        canvas.restore()
+
+        canvas.drawCircle(px, py, 2.8f * density, selectionDotPaint)
 
         if (fastMoving) return
 
-        val label = sighting.placeLabel()
-        val textWidth = labelTextPaint.measureText(label)
+        val fullLabel = "TGT#${sighting.id} // ${sighting.placeLabel().uppercase(Locale.US)}"
+        val charCount = ((elapsed / 360f).coerceIn(0.15f, 1f) * fullLabel.length).toInt()
+        val shownLabel = fullLabel.substring(0, charCount.coerceIn(1, fullLabel.length))
+
+        val textWidth = labelTextPaint.measureText(fullLabel)
         val padX = 8f * density
-        val chipHeight = 22f * density
+        val chipHeight = 21f * density
         val left = (px - textWidth / 2f - padX).coerceIn(
             6f * density,
             max(6f * density, width - textWidth - padX * 2f - 6f * density),
         )
-        val top = py - 30f * density
+        val top = (py - 34f * density).coerceIn(8f * density, max(8f * density, h - chipHeight - 8f * density))
         labelBounds.set(left, top, left + textWidth + padX * 2f, top + chipHeight)
-        canvas.drawRoundRect(labelBounds, 6f * density, 6f * density, labelBgPaint)
-        canvas.drawRoundRect(labelBounds, 6f * density, 6f * density, labelStrokePaint)
+
+        canvas.drawLine(px, py - box, labelBounds.centerX(), labelBounds.bottom, selectionRingPaint)
+        labelTextPaint.color = accent
+        labelStrokePaint.color = accent
+        canvas.drawRoundRect(labelBounds, 2f * density, 2f * density, labelBgPaint)
+        canvas.drawRoundRect(labelBounds, 2f * density, 2f * density, labelStrokePaint)
+
         val metrics = labelTextPaint.fontMetrics
         val baseline = labelBounds.centerY() - (metrics.ascent + metrics.descent) / 2f
-        canvas.drawText(label, left + padX, baseline, labelTextPaint)
+        canvas.drawText(shownLabel, left + padX, baseline, labelTextPaint)
+    }
+
+    /** Sweeping phosphor radar dome projected onto the globe. */
+    private fun drawRadarZone(canvas: Canvas) {
+        if (!radarActive || !radarLat.isFinite() || !radarLon.isFinite()) return
+        vec(Math.toRadians(radarLon), Math.toRadians(radarLat), curVec)
+        if (curVec[2] < 0.02) return
+
+        val px = (cx + radius * curVec[0]).toFloat()
+        val py = (cy - radius * curVec[1]).toFloat()
+        val rPx = ((radarRadiusKm / 6371.0) * radius).toFloat()
+            .coerceIn(18f * density, max(width, height).toFloat())
+
+        val now = SystemClock.uptimeMillis()
+        val sweepAngle = ((now * 0.16) % 360.0).toFloat()
+        val sonarPhase = (now % 1800L) / 1800f
+
+        hudFillPaint.color = 0x1400FF9C
+        canvas.drawCircle(px, py, rPx, hudFillPaint)
+
+        radarArcRect.set(px - rPx, py - rPx, px + rPx, py + rPx)
+        hudFillPaint.color = 0x2E00FF9C
+        canvas.drawArc(radarArcRect, sweepAngle - 55f, 55f, true, hudFillPaint)
+
+        hudPaint.strokeWidth = 1.2f * density
+        hudPaint.color = 0xAA00FF9C.toInt()
+        canvas.drawCircle(px, py, rPx, hudPaint)
+
+        hudPaint.strokeWidth = 0.8f * density
+        hudPaint.color = 0x4400FF9C
+        canvas.drawCircle(px, py, rPx * 0.66f, hudPaint)
+        canvas.drawCircle(px, py, rPx * 0.33f, hudPaint)
+
+        val rippleAlpha = ((1f - sonarPhase) * 150f).toInt().coerceIn(0, 150)
+        hudPaint.color = (rippleAlpha shl 24) or 0x0000FF9C
+        canvas.drawCircle(px, py, rPx * sonarPhase, hudPaint)
+
+        val rad = Math.toRadians(sweepAngle.toDouble())
+        val lx = px + (cos(rad) * rPx).toFloat()
+        val ly = py + (sin(rad) * rPx).toFloat()
+        hudPaint.strokeWidth = 1.5f * density
+        hudPaint.color = 0xEE00FF9C.toInt()
+        canvas.drawLine(px, py, lx, ly, hudPaint)
+    }
+
+    /** Orbital degree bezel, counter-rotating reticle and tactical corner brackets. */
+    private fun drawCyberHud(canvas: Canvas, w: Float, h: Float, globeRadius: Float) {
+        val r = 15f * density
+        val gap = 4.5f * density
+        val accentColor = if (fastMoving || radarActive) 0x9900FF9C.toInt() else 0x5500F0FF
+
+        hudPaint.strokeWidth = 1f * density
+        hudPaint.color = accentColor
+        canvas.drawLine(cx - r, cy, cx - gap, cy, hudPaint)
+        canvas.drawLine(cx + gap, cy, cx + r, cy, hudPaint)
+        canvas.drawLine(cx, cy - r, cx, cy - gap, hudPaint)
+        canvas.drawLine(cx, cy + gap, cx, cy + r, hudPaint)
+        canvas.drawCircle(cx, cy, r * 0.62f, hudPaint)
+
+        val rotRad = Math.toRadians(lam * 1.5)
+        val innerR = r * 0.72f
+        val outerR = r * 1.05f
+        for (i in 0 until 4) {
+            val a = rotRad + i * (PI / 2.0) + PI / 4.0
+            val ca = cos(a).toFloat()
+            val sa = sin(a).toFloat()
+            canvas.drawLine(
+                cx + ca * innerR,
+                cy + sa * innerR,
+                cx + ca * outerR,
+                cy + sa * outerR,
+                hudPaint,
+            )
+        }
+
+        if (!streetMode && zoom < 2.6 && globeRadius + 14f * density < min(w, h) * 0.52f) {
+            val bezelR = globeRadius + 6f * density
+            val tickShort = 3.5f * density
+            val tickLong = 7f * density
+            hudPaint.strokeWidth = 1f * density
+            hudPaint.color = 0x3800F0FF
+            val lonPhase = lam % 15.0
+            var deg = 0.0
+            while (deg < 360.0) {
+                val angle = Math.toRadians(deg + lonPhase)
+                val ca = cos(angle).toFloat()
+                val sa = sin(angle).toFloat()
+                val len = if ((deg.roundToInt() % 45) == 0) tickLong else tickShort
+                canvas.drawLine(
+                    cx + ca * bezelR,
+                    cy + sa * bezelR,
+                    cx + ca * (bezelR + len),
+                    cy + sa * (bezelR + len),
+                    hudPaint,
+                )
+                deg += 15.0
+            }
+        }
+
+        val m = 10f * density
+        val topM = 82f * density
+        val botM = 60f * density
+        val len = 14f * density
+        hudPaint.strokeWidth = 1.2f * density
+        hudPaint.color = 0x4400F0FF
+        canvas.drawLine(m, topM, m + len, topM, hudPaint)
+        canvas.drawLine(m, topM, m, topM + len, hudPaint)
+        canvas.drawLine(w - m, topM, w - m - len, topM, hudPaint)
+        canvas.drawLine(w - m, topM, w - m, topM + len, hudPaint)
+        canvas.drawLine(m, h - botM, m + len, h - botM, hudPaint)
+        canvas.drawLine(m, h - botM, m, h - botM - len, hudPaint)
+        canvas.drawLine(w - m, h - botM, w - m - len, h - botM, hudPaint)
+        canvas.drawLine(w - m, h - botM, w - m, h - botM - len, hudPaint)
+
+        if (!fastMoving) {
+            val modeStr = when {
+                radarActive -> "SYS:RADAR_LOCK // ${radarRadiusKm.toInt()}KM"
+                selectedSighting != null -> "SYS:TGT_ACQUIRED // ID#${selectedSighting?.id}"
+                autoRotate -> "SYS:ORBIT_SCAN // AUTO"
+                else -> "SYS:MANUAL_VEC // READY"
+            }
+            canvas.drawText(modeStr, m + 5f * density, h - botM - 5f * density, hudTextPaint)
+        }
     }
 
     /* ---------------- street tiles ---------------- */
@@ -1540,9 +1789,9 @@ class GlobeView @JvmOverloads constructor(
                 moving = true
             }
 
-            if (moving || dirty) invalidate()
+            if (moving || dirty || hudAnimating) invalidate()
 
-            if (moving || dragging) {
+            if (moving || dragging || hudAnimating) {
                 Choreographer.getInstance().postFrameCallback(this)
             } else {
                 framePosted = false
@@ -1561,6 +1810,11 @@ class GlobeView @JvmOverloads constructor(
         super.onAttachedToWindow()
         lastFrame = 0.0
         ensureFrames()
+    }
+
+    override fun onVisibilityAggregated(isVisible: Boolean) {
+        super.onVisibilityAggregated(isVisible)
+        if (isVisible) ensureFrames()
     }
 
     override fun onDetachedFromWindow() {
@@ -1809,5 +2063,7 @@ class GlobeView @JvmOverloads constructor(
         const val HEAT_CELL_DP = 13f
         const val DEFAULT_LAM = -18.0
         const val DEFAULT_PHI = -14.0
+        const val LOCK_ANIMATION_MS = 1_300L
+        const val VIDEO_BATCH_THRESHOLD = 256
     }
 }

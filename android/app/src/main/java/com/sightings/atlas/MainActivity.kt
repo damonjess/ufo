@@ -66,6 +66,7 @@ import com.sightings.atlas.ui.colorOf
 import com.sightings.atlas.ui.dp
 import com.sightings.atlas.ui.monoText
 import com.sightings.atlas.ui.pill
+import com.sightings.atlas.ui.scrambleText
 import java.io.StringWriter
 import java.util.Calendar
 import java.util.Locale
@@ -101,6 +102,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var timelinePlay: TextView
     private lateinit var timelineYear: TextView
     private lateinit var timelineSpeed: TextView
+    private lateinit var globeContainer: FrameLayout
     private lateinit var panel: LinearLayout
     private lateinit var panelToggle: TextView
     private lateinit var onThisDayButton: TextView
@@ -143,8 +145,10 @@ class MainActivity : AppCompatActivity() {
     private var hoverZoom = 1.0
     private var hoveringUk = false
     private var lastReadoutText = ""
+    private var lastReadoutMode = ""
     private var lastUkFetchAt = 0L
-    private var panelOpen = false
+    private var panelMode = 0 // 0 hidden, 1 split, 2 full console
+    private val panelOpen: Boolean get() = panelMode != 0
     private var adapterDirtyWhileClosed = false
 
     private val caseStore by lazy { CaseFileStore(this) }
@@ -190,9 +194,9 @@ class MainActivity : AppCompatActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_main)
         bindViews()
-        panelOpen = prefs.getBoolean(KEY_PANEL_OPEN, false)
+        panelMode = if (prefs.getBoolean(KEY_PANEL_OPEN, false)) 1 else 0
         panelToggle.setOnClickListener {
-            panelOpen = !panelOpen
+            panelMode = (panelMode + 1) % 3
             prefs.edit().putBoolean(KEY_PANEL_OPEN, panelOpen).apply()
             applyPanelState()
             if (panelOpen && adapterDirtyWhileClosed) {
@@ -201,6 +205,9 @@ class MainActivity : AppCompatActivity() {
             }
         }
         applyPanelState()
+        panel.post {
+            if (panelMode == 1) applyPanelState()
+        }
         todayKey = todayKeyString()
         pendingReportId = reportIdFrom(intent)
         buildLegend()
@@ -226,6 +233,7 @@ class MainActivity : AppCompatActivity() {
         statCountries = findViewById(R.id.statCountries)
         statYears = findViewById(R.id.statYears)
         viewReadout = findViewById(R.id.viewReadout)
+        viewReadout.setTextSize(TypedValue.COMPLEX_UNIT_SP, 7f)
         plottedLabel = findViewById(R.id.plottedLabel)
         autoSpin = findViewById(R.id.autoSpin)
         rotateHint = findViewById(R.id.rotateHint)
@@ -246,6 +254,7 @@ class MainActivity : AppCompatActivity() {
         timelinePlay = findViewById(R.id.timelinePlay)
         timelineYear = findViewById(R.id.timelineYear)
         timelineSpeed = findViewById(R.id.timelineSpeed)
+        globeContainer = findViewById(R.id.globeContainer)
         panel = findViewById(R.id.panel)
         panelToggle = findViewById(R.id.panelToggle)
         timelineSpeed.contentDescription =
@@ -339,14 +348,21 @@ class MainActivity : AppCompatActivity() {
             hoverLat = lat
             hoverLon = lon
             hoverZoom = zoom
-            val readout = getString(
-                R.string.view_readout,
-                coordLabel(lat, lon),
-                zoomLabel(zoom),
-            )
+            val modeTag = when {
+                areaSearchActive -> "RADAR:LOCK"
+                globe.selected != null -> "TGT:LOCK"
+                spinning -> "ORBIT:AUTO"
+                else -> "VEC:FREE"
+            }
+            val readout = "[$modeTag] ${coordLabel(lat, lon)} // ${zoomLabel(zoom)}"
             if (readout != lastReadoutText) {
                 lastReadoutText = readout
-                viewReadout.text = readout
+                if (modeTag != lastReadoutMode) {
+                    lastReadoutMode = modeTag
+                    viewReadout.scrambleText(readout, 220L)
+                } else {
+                    viewReadout.text = readout
+                }
             }
             val nowHoveringUk = !spinning && LiveTikTokFetcher.isInUkRegion(lat, lon)
             if (nowHoveringUk != hoveringUk) {
@@ -441,11 +457,74 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun applyPanelState() {
-        panel.visibility = if (panelOpen) View.VISIBLE else View.GONE
-        panelToggle.text = getString(if (panelOpen) R.string.show_globe else R.string.show_reports)
-        panelToggle.contentDescription = getString(
-            if (panelOpen) R.string.show_globe_desc else R.string.show_reports_desc,
-        )
+        val panelLp = panel.layoutParams as? LinearLayout.LayoutParams
+        val globeLp = globeContainer.layoutParams as? LinearLayout.LayoutParams
+        when (panelMode) {
+            0 -> {
+                panel.visibility = View.GONE
+                globeContainer.visibility = View.VISIBLE
+                panelLp?.let {
+                    it.height = 0
+                    it.weight = 1.35f
+                }
+                globeLp?.let {
+                    it.height = 0
+                    it.weight = 1f
+                }
+                panelToggle.text = "[ ▤ CONSOLE ]"
+                panelToggle.contentDescription = getString(R.string.show_reports_desc)
+            }
+            1 -> {
+                panel.visibility = View.VISIBLE
+                globeContainer.visibility = View.VISIBLE
+                val available = (panel.parent as? View)?.height ?: 0
+                panelLp?.let {
+                    it.height = if (available > 0) {
+                        (available * 0.48f).toInt()
+                    } else {
+                        (resources.displayMetrics.heightPixels * 0.48f).toInt()
+                    }
+                    it.weight = 0f
+                }
+                globeLp?.let {
+                    it.height = 0
+                    it.weight = 1f
+                }
+                panelToggle.text = "[ ⤢ EXPAND ]"
+                panelToggle.contentDescription = getString(R.string.show_reports_desc)
+            }
+            else -> {
+                panel.visibility = View.VISIBLE
+                globeContainer.visibility = View.GONE
+                panelLp?.let {
+                    it.height = 0
+                    it.weight = 1f
+                }
+                panelToggle.text = "[ ✕ GLOBE ]"
+                panelToggle.contentDescription = getString(R.string.show_globe_desc)
+            }
+        }
+        panelLp?.let { panel.layoutParams = it }
+        globeLp?.let { globeContainer.layoutParams = it }
+    }
+
+    private fun syncRadarToGlobe() {
+        globe.setRadarLock(areaSearchActive, areaLat, areaLon, areaRadiusKm)
+        if (!hoverLat.isFinite() || !hoverLon.isFinite()) return
+        val modeTag = when {
+            areaSearchActive -> "RADAR:LOCK"
+            globe.selected != null -> "TGT:LOCK"
+            spinning -> "ORBIT:AUTO"
+            else -> "VEC:FREE"
+        }
+        val readout = "[$modeTag] ${coordLabel(hoverLat, hoverLon)} // ${zoomLabel(hoverZoom)}"
+        lastReadoutText = readout
+        if (modeTag != lastReadoutMode) {
+            lastReadoutMode = modeTag
+            viewReadout.scrambleText(readout, 220L)
+        } else {
+            viewReadout.text = readout
+        }
     }
 
     private fun updateTabs() {
@@ -470,12 +549,28 @@ class MainActivity : AppCompatActivity() {
 
     private fun buildLegend() {
         legend.removeAllViews()
+        val ops = monoText(9.5f, colorOf(R.color.text), 0.08f).apply {
+            text = "[ ⌘ OPS ]"
+            gravity = Gravity.CENTER
+            setPadding(dp(9f), dp(6f), dp(9f), dp(6f))
+            background = pill(0x1F6EE7B7, 0x806EE7B7.toInt())
+            isClickable = true
+            setOnClickListener { showOpsMenu() }
+        }
+        legend.addView(
+            ops,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
         legend.addView(
             legendChip("All", colorOf(R.color.mint), era == null && !savedOnly && !areaSearchActive) {
                 era = null
                 savedOnly = false
                 activeCaseId = null
                 areaSearchActive = false
+                syncRadarToGlobe()
                 buildLegend()
                 updateClearVisibility()
                 scheduleRefresh()
@@ -516,6 +611,7 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     areaSearchActive = false
                 }
+                syncRadarToGlobe()
                 buildLegend()
                 updateClearVisibility()
                 refresh()
@@ -527,6 +623,7 @@ class MainActivity : AppCompatActivity() {
                 legend.addView(
                     legendChip("${rad.toInt()}KM", colorOf(R.color.mint), areaRadiusKm == rad, dot = false) {
                         areaRadiusKm = rad
+                        syncRadarToGlobe()
                         buildLegend()
                         refresh()
                     },
@@ -537,6 +634,7 @@ class MainActivity : AppCompatActivity() {
                     legendChip("↻ HERE", colorOf(R.color.mint), active = true, dot = false) {
                         areaLat = areaAnchorLat
                         areaLon = areaAnchorLon
+                        syncRadarToGlobe()
                         buildLegend()
                         refresh()
                     },
@@ -784,6 +882,7 @@ class MainActivity : AppCompatActivity() {
         areaSearchActive = false
         areaLat = Double.NaN
         areaLon = Double.NaN
+        syncRadarToGlobe()
         nightOnly = false
         onThisDay = false
         updateOnThisDay()
@@ -845,10 +944,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun onSightingClick(sighting: Sighting) {
-        if (sighting.hasPosition) {
-            globe.flyTo(sighting.lat, sighting.lon, kotlin.math.max(hoverZoom, 3.2))
+        stopSpin()
+        if (panelMode == 1 && globe.selected?.id != sighting.id && sighting.hasPosition) {
+            globe.selected = sighting
+            globe.flyTo(sighting.lat, sighting.lon, kotlin.math.max(hoverZoom, 3.6))
+            viewReadout.scrambleText(
+                "[TGT#${sighting.id}] ${coordLabel(sighting.lat, sighting.lon)} // LOCKED",
+                220L,
+            )
+        } else {
+            if (sighting.hasPosition) {
+                globe.flyTo(sighting.lat, sighting.lon, kotlin.math.max(hoverZoom, 3.2))
+            }
+            openDetail(sighting)
         }
-        openDetail(sighting)
     }
 
     private fun openDetail(sighting: Sighting) {
@@ -1243,6 +1352,54 @@ class MainActivity : AppCompatActivity() {
                         buildLegend()
                         scheduleRefresh()
                     }
+                }
+            }
+            .show()
+    }
+
+    /** One-thumb command palette for the tactical console. */
+    private fun showOpsMenu() {
+        val items = arrayOf(
+            "📁  Case Files & Dossiers (${caseStore.allSavedIds().size} saved)",
+            "⌖  ${if (areaSearchActive) "Disable Radar Area Lock" else "Lock Radar to Crosshair (${areaRadiusKm.toInt()} km)"}",
+            "📡  ${if (nearLat.isFinite()) "Step / Clear GPS Radar (${nearRadiusKm.toInt()} km)" else "GPS Near-Me Scan"}",
+            "🔥  ${if (globe.heatMode) "Disable Thermal Density Grid" else "Enable Thermal Density Grid"}",
+            "📅  ${if (onThisDay) "Clear On-This-Day Filter ($todayKey)" else "Filter: On This Day ($todayKey)"}",
+            "⚡  Acquire Random Target",
+            "📊  Global SIGINT Telemetry (Stats)",
+            "⇣  Export View (${String.format(Locale.US, "%,d", lastFiltered.size)} records)…",
+        )
+        AlertDialog.Builder(this)
+            .setTitle(">_ SIGINT // TACTICAL OPS")
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> showCaseFilesSheet()
+                    1 -> {
+                        stopSpin()
+                        areaSearchActive = !areaSearchActive
+                        if (areaSearchActive) {
+                            areaLat = if (hoverLat.isFinite()) hoverLat else 14.0
+                            areaLon = if (hoverLon.isFinite()) hoverLon else 18.0
+                            if (panelMode == 0) {
+                                panelMode = 1
+                                applyPanelState()
+                            }
+                        }
+                        syncRadarToGlobe()
+                        buildLegend()
+                        updateClearVisibility()
+                        refresh()
+                    }
+                    2 -> toggleNearMe()
+                    3 -> {
+                        globe.heatMode = !globe.heatMode
+                        styleToggle(heatButton, globe.heatMode)
+                        if (globe.heatMode) stopSpin()
+                    }
+                    4 -> toggleOnThisDay()
+                    5 -> surpriseMe()
+                    6 -> showStats()
+                    7 -> showExportViewSheet()
                 }
             }
             .show()
