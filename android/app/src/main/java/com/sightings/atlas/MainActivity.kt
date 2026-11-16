@@ -17,6 +17,7 @@ import android.net.Uri
 import android.os.Looper
 import android.os.SystemClock
 import android.text.Editable
+import android.text.InputType
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.TextWatcher
@@ -30,6 +31,8 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.ArrayAdapter
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -47,6 +50,8 @@ import com.sightings.atlas.data.BulkExporter
 import com.sightings.atlas.data.BulkImporter
 import com.sightings.atlas.data.CaseFile
 import com.sightings.atlas.data.CaseFileStore
+import com.sightings.atlas.data.CaseEvidence
+import com.sightings.atlas.data.CaseHypothesis
 import com.sightings.atlas.data.Dataset
 import com.sightings.atlas.data.LiveTikTokFetcher
 import com.sightings.atlas.model.Era
@@ -1271,6 +1276,16 @@ class MainActivity : AppCompatActivity() {
             )
             row.addView(
                 monoText(9.5f, colorOf(R.color.mint), 0.06f).apply {
+                    text = "OPEN"
+                    setPadding(dp(10f), dp(6f), dp(6f), dp(6f))
+                    setOnClickListener {
+                        dialog.dismiss()
+                        showCaseDetail(c.id)
+                    }
+                },
+            )
+            row.addView(
+                monoText(9.5f, colorOf(R.color.mint), 0.06f).apply {
                     text = "SHARE / EXPORT"
                     setPadding(dp(10f), dp(6f), dp(6f), dp(6f))
                     setOnClickListener {
@@ -1307,6 +1322,354 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    /** Full case workspace: metadata, evidence locker and hypothesis matrix. */
+    private fun showCaseDetail(caseId: String) {
+        val cf = caseStore.getCase(caseId) ?: return
+        val dialog = Dialog(this)
+        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+        val scroll = ScrollView(this)
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20f), dp(18f), dp(20f), dp(40f))
+            setBackgroundResource(R.drawable.bg_sheet)
+        }
+        scroll.addView(card)
+        dialog.setContentView(scroll)
+        dialog.window?.apply {
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            setGravity(Gravity.BOTTOM)
+            addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            setDimAmount(0.6f)
+            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+
+        val statuses = listOf("Open", "Active", "Stalled", "Closed — Explained", "Closed — Unexplained")
+        val priorities = listOf("Low", "Normal", "High", "Urgent")
+        val evidenceKinds = listOf("Report", "Video", "Article", "Witness", "Flight data", "Weather", "Other")
+        val reliabilities = listOf("Official", "News", "Eyewitness", "Social", "Unknown")
+        val hypothesisStatuses = listOf("Untested", "Likely", "Ruled out", "Untestable")
+        var render: () -> Unit = {}
+
+        fun inputField(hintText: String, initial: String, multiline: Boolean = false, uri: Boolean = false): EditText =
+            EditText(this).apply {
+                hint = hintText
+                setHintTextColor(colorOf(R.color.dim))
+                setTextColor(colorOf(R.color.text))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
+                setBackgroundResource(R.drawable.bg_field)
+                setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
+                minLines = if (multiline) 3 else 1
+                gravity = if (multiline) Gravity.TOP or Gravity.START else Gravity.CENTER_VERTICAL
+                if (uri) inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+                setText(initial)
+            }
+
+        fun label(text: String) = monoText(8.5f, colorOf(R.color.dim), 0.14f).apply {
+            this.text = text.uppercase(Locale.US)
+            setPadding(0, dp(12f), 0, dp(3f))
+        }
+
+        fun actionButton(text: String, onClick: () -> Unit): TextView =
+            monoText(9.5f, colorOf(R.color.mint), 0.08f).apply {
+                this.text = text
+                setPadding(dp(12f), dp(9f), dp(12f), dp(9f))
+                setBackgroundResource(R.drawable.bg_chip_on)
+                setOnClickListener { onClick() }
+            }
+
+        fun editField(title: String, initial: String, placeholder: String, onSave: (String) -> Unit) {
+            val field = inputField(placeholder, initial, multiline = true)
+            AlertDialog.Builder(this)
+                .setTitle(title)
+                .setView(field)
+                .setPositiveButton("Save") { _, _ ->
+                    onSave(field.text?.toString().orEmpty())
+                    render()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+
+        fun addEvidenceDialog(existing: CaseEvidence?) {
+            val form = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(20f), dp(4f), dp(20f), 0)
+            }
+            val titleInput = inputField("Title", existing?.title.orEmpty())
+            val urlInput = inputField("Source URL (optional)", existing?.url.orEmpty(), uri = true)
+            val notesInput = inputField("What does it show or prove?", existing?.notes.orEmpty(), multiline = true)
+            val kindSpinner = Spinner(this).apply {
+                adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, evidenceKinds)
+                setSelection(evidenceKinds.indexOf(existing?.kind).coerceAtLeast(0))
+            }
+            val reliabilitySpinner = Spinner(this).apply {
+                adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, reliabilities)
+                setSelection(reliabilities.indexOf(existing?.reliability).coerceAtLeast(0))
+            }
+            form.addView(label("Title")); form.addView(titleInput)
+            form.addView(label("Source URL")); form.addView(urlInput)
+            form.addView(label("Type")); form.addView(kindSpinner)
+            form.addView(label("Reliability")); form.addView(reliabilitySpinner)
+            form.addView(label("Investigator notes")); form.addView(notesInput)
+            val wrapped = ScrollView(this).apply { addView(form) }
+            AlertDialog.Builder(this)
+                .setTitle(if (existing == null) "Add Evidence" else "Edit Evidence")
+                .setView(wrapped)
+                .setPositiveButton("Save") { _, _ ->
+                    val kind = kindSpinner.selectedItem?.toString().orEmpty().ifBlank { "Other" }
+                    val reliability = reliabilitySpinner.selectedItem?.toString().orEmpty().ifBlank { "Unknown" }
+                    if (existing == null) {
+                        caseStore.addEvidence(cf.id, kind, titleInput.text?.toString().orEmpty(), urlInput.text?.toString().orEmpty(), reliability, notesInput.text?.toString().orEmpty())
+                    } else {
+                        caseStore.updateEvidence(cf.id, existing.id, kind, titleInput.text?.toString().orEmpty(), urlInput.text?.toString().orEmpty(), reliability, notesInput.text?.toString().orEmpty())
+                    }
+                    render()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+
+        fun addHypothesisDialog(existing: CaseHypothesis?) {
+            val form = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(20f), dp(4f), dp(20f), 0)
+            }
+            val labelInput = inputField("e.g. Aircraft landing lights", existing?.label.orEmpty())
+            val confidenceInput = inputField("0–100", (existing?.confidence ?: 50).toString()).apply {
+                inputType = InputType.TYPE_CLASS_NUMBER
+            }
+            val supportingInput = inputField("Supporting evidence", existing?.supporting.orEmpty(), multiline = true)
+            val contradictingInput = inputField("Contradicting evidence", existing?.contradicting.orEmpty(), multiline = true)
+            val statusSpinner = Spinner(this).apply {
+                adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, hypothesisStatuses)
+                setSelection(hypothesisStatuses.indexOf(existing?.status).coerceAtLeast(0))
+            }
+            form.addView(label("Hypothesis")); form.addView(labelInput)
+            form.addView(label("Status")); form.addView(statusSpinner)
+            form.addView(label("Confidence %")); form.addView(confidenceInput)
+            form.addView(label("Supporting")); form.addView(supportingInput)
+            form.addView(label("Contradicting")); form.addView(contradictingInput)
+            AlertDialog.Builder(this)
+                .setTitle(if (existing == null) "Add Hypothesis" else "Edit Hypothesis")
+                .setView(ScrollView(this).apply { addView(form) })
+                .setPositiveButton("Save") { _, _ ->
+                    val confidence = confidenceInput.text?.toString()?.toIntOrNull()?.coerceIn(0, 100) ?: 50
+                    val status = statusSpinner.selectedItem?.toString().orEmpty().ifBlank { "Untested" }
+                    if (existing == null) {
+                        caseStore.addHypothesis(cf.id, labelInput.text?.toString().orEmpty(), status, confidence, supportingInput.text?.toString().orEmpty(), contradictingInput.text?.toString().orEmpty())
+                    } else {
+                        caseStore.updateHypothesis(cf.id, existing.id, labelInput.text?.toString().orEmpty(), status, confidence, supportingInput.text?.toString().orEmpty(), contradictingInput.text?.toString().orEmpty())
+                    }
+                    render()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+
+        fun confirmDelete(what: String, action: () -> Unit) {
+            AlertDialog.Builder(this)
+                .setTitle("Delete $what?")
+                .setMessage("This removes it from the case file.")
+                .setPositiveButton("Delete") { _, _ ->
+                    action()
+                    render()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+
+        render = {
+            card.removeAllViews()
+            val header = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            header.addView(
+                TextView(this).apply {
+                    text = cf.name
+                    typeface = Typeface.SERIF
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
+                    setTextColor(colorOf(R.color.text))
+                },
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+            )
+            header.addView(
+                monoText(13f, colorOf(R.color.muted), 0f).apply {
+                    text = "×"
+                    setPadding(dp(14f), dp(4f), dp(4f), dp(4f))
+                    setOnClickListener { dialog.dismiss() }
+                },
+            )
+            card.addView(header)
+            card.addView(
+                monoText(8.5f, colorOf(R.color.dim), 0.08f).apply {
+                    text = "CASE #${cf.id.uppercase(Locale.US)} · ${cf.reportIds.size} REPORTS"
+                    setPadding(0, dp(4f), 0, dp(6f))
+                },
+            )
+
+            val metaRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            fun metaChip(labelText: String, value: String, onClick: () -> Unit): TextView =
+                monoText(9f, colorOf(R.color.mint), 0.06f).apply {
+                    text = "$labelText · $value  ▸"
+                    setPadding(dp(10f), dp(9f), dp(10f), dp(9f))
+                    setBackgroundResource(R.drawable.bg_chip)
+                    setOnClickListener { onClick() }
+                }
+            metaRow.addView(
+                metaChip("STATUS", cf.status) {
+                    val next = statuses[(statuses.indexOf(cf.status).coerceAtLeast(0) + 1) % statuses.size]
+                    caseStore.updateCaseMeta(cf.id, status = next)
+                    render()
+                },
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6f) },
+            )
+            metaRow.addView(
+                metaChip("PRIORITY", cf.priority) {
+                    val next = priorities[(priorities.indexOf(cf.priority).coerceAtLeast(0) + 1) % priorities.size]
+                    caseStore.updateCaseMeta(cf.id, priority = next)
+                    render()
+                },
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+            )
+            card.addView(metaRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6f) })
+
+            fun caseField(title: String, value: String, placeholder: String, onEdit: () -> Unit) {
+                card.addView(sectionLabel(title))
+                card.addView(
+                    TextView(this).apply {
+                        text = value.ifBlank { placeholder }
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
+                        setTextColor(if (value.isBlank()) colorOf(R.color.dim) else colorOf(R.color.text))
+                        setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
+                        setBackgroundResource(R.drawable.bg_field)
+                        setOnClickListener { onEdit() }
+                    },
+                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4f) },
+                )
+            }
+            caseField("Case brief", cf.summary, "Tap to add the question this case is trying to answer…") {
+                editField("Case Brief", cf.summary, "What are you investigating?", { caseStore.updateCaseMeta(cf.id, summary = it) })
+            }
+            caseField("Next action", cf.nextAction, "Tap to add the next concrete step…") {
+                editField("Next Action", cf.nextAction, "e.g. Check Flightradar for 21:14", { caseStore.updateCaseMeta(cf.id, nextAction = it) })
+            }
+            caseField("Conclusion", cf.conclusion, "Tap to record your current verdict and why…") {
+                editField("Conclusion", cf.conclusion, "What do you conclude, and what is the evidence?", { caseStore.updateCaseMeta(cf.id, conclusion = it) })
+            }
+
+            val caseActions = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.END
+                setPadding(0, dp(10f), 0, 0)
+            }
+            caseActions.addView(actionButton("FILTER REPORTS") {
+                savedOnly = true
+                activeCaseId = cf.id
+                buildLegend()
+                updateClearVisibility()
+                scheduleRefresh()
+                dialog.dismiss()
+            })
+            caseActions.addView(
+                actionButton("SHARE / EXPORT") {
+                    dialog.dismiss()
+                    showCaseExportOptions(cf)
+                },
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(6f) },
+            )
+            card.addView(caseActions)
+
+            card.addView(sectionLabel("Evidence locker (${cf.evidence.size})"))
+            if (cf.evidence.isEmpty()) {
+                card.addView(monoText(9.5f, colorOf(R.color.dim), 0.04f).apply { text = "No evidence attached yet." })
+            }
+            for (e in cf.evidence.toList()) {
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(10f), dp(8f), dp(10f), dp(8f))
+                    setBackgroundResource(R.drawable.bg_chip)
+                }
+                val main = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                main.addView(TextView(this).apply {
+                    text = e.title
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                    setTextColor(colorOf(R.color.text))
+                })
+                main.addView(monoText(8f, colorOf(R.color.dim), 0.06f).apply {
+                    text = "${e.kind} · ${e.reliability}" + if (e.url.isNotBlank()) " · ${e.url}" else ""
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                })
+                if (e.notes.isNotBlank()) {
+                    main.addView(monoText(8.5f, colorOf(R.color.muted), 0.02f).apply {
+                        text = e.notes
+                        maxLines = 2
+                        ellipsize = android.text.TextUtils.TruncateAt.END
+                    })
+                }
+                main.setOnClickListener {
+                    if (e.url.isNotBlank()) openExternalUrl(e.url) else addEvidenceDialog(e)
+                }
+                row.addView(main, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                row.addView(monoText(8.5f, colorOf(R.color.mint), 0.06f).apply {
+                    text = "EDIT"
+                    setPadding(dp(8f), dp(4f), dp(4f), dp(4f))
+                    setOnClickListener { addEvidenceDialog(e) }
+                })
+                row.addView(monoText(11f, colorOf(R.color.muted), 0f).apply {
+                    text = "×"
+                    setPadding(dp(8f), dp(2f), dp(2f), dp(2f))
+                    setOnClickListener { confirmDelete("evidence") { caseStore.deleteEvidence(cf.id, e.id) } }
+                })
+                card.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6f) })
+            }
+            card.addView(actionButton("+ ADD EVIDENCE") { addEvidenceDialog(null) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8f) })
+
+            card.addView(sectionLabel("Hypotheses (${cf.hypotheses.size})"))
+            if (cf.hypotheses.isEmpty()) {
+                card.addView(monoText(9.5f, colorOf(R.color.dim), 0.04f).apply { text = "No hypotheses yet. Start with the mundane explanations." })
+            }
+            for (h in cf.hypotheses.toList()) {
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(10f), dp(8f), dp(10f), dp(8f))
+                    setBackgroundResource(R.drawable.bg_chip)
+                }
+                val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+                top.addView(TextView(this).apply {
+                    text = h.label
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                    setTextColor(colorOf(R.color.text))
+                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                top.addView(monoText(8.5f, colorOf(R.color.mint), 0.04f).apply { text = "${h.status.uppercase(Locale.US)} · ${h.confidence}%" })
+                top.addView(monoText(8.5f, colorOf(R.color.mint), 0.04f).apply {
+                    text = "EDIT"
+                    setPadding(dp(8f), dp(2f), dp(4f), dp(2f))
+                    setOnClickListener { addHypothesisDialog(h) }
+                })
+                top.addView(monoText(11f, colorOf(R.color.muted), 0f).apply {
+                    text = "×"
+                    setPadding(dp(8f), dp(2f), dp(2f), dp(2f))
+                    setOnClickListener { confirmDelete("hypothesis") { caseStore.deleteHypothesis(cf.id, h.id) } }
+                })
+                row.addView(top)
+                if (h.supporting.isNotBlank()) {
+                    row.addView(monoText(8.5f, colorOf(R.color.mint), 0.02f).apply { text = "+ ${h.supporting}"; maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END })
+                }
+                if (h.contradicting.isNotBlank()) {
+                    row.addView(monoText(8.5f, Color.parseColor("#F59E0B"), 0.02f).apply { text = "− ${h.contradicting}"; maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END })
+                }
+                row.setOnClickListener { addHypothesisDialog(h) }
+                card.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6f) })
+            }
+            card.addView(actionButton("+ ADD HYPOTHESIS") { addHypothesisDialog(null) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8f) })
+        }
+        render()
+        dialog.show()
     }
 
     private fun showCaseExportOptions(caseFile: CaseFile) {
@@ -1587,6 +1950,15 @@ class MainActivity : AppCompatActivity() {
             putExtra(Intent.EXTRA_TEXT, content)
         }
         startActivity(Intent.createChooser(intent, subject))
+    }
+
+    private fun openExternalUrl(rawUrl: String) {
+        val url = if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://")) rawUrl else "https://$rawUrl"
+        runCatching {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        }.onFailure {
+            Toast.makeText(this, "No browser available for that link", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun writePendingExport(uri: Uri) {
