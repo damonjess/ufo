@@ -308,5 +308,115 @@
     "lat": null,
     "lon": null,
     "posted": "2024-12-08"
+  },
+  {
+    "n": 32,
+    "id": "7441289014822194464",
+    "handle": "ukskywatcher",
+    "caption": "Glowing orbs hovering over RAF Lakenheath perimeter fence while F-15 jets circle overhead in Suffolk, UK.",
+    "place": "RAF Lakenheath, Suffolk",
+    "lat": 52.412,
+    "lon": 0.558,
+    "posted": "2024-11-25"
+  },
+  {
+    "n": 33,
+    "id": "7441652198045224224",
+    "handle": "eastangliauap",
+    "caption": "Multiple red and amber UAP lights filmed stationary above RAF Mildenhall and Feltwell in Suffolk.",
+    "place": "RAF Mildenhall, Suffolk",
+    "lat": 52.361,
+    "lon": 0.486,
+    "posted": "2024-11-26"
+  },
+  {
+    "n": 34,
+    "id": "7384910283740826912",
+    "handle": "mancspotter",
+    "caption": "Metallic spherical orb hovering right above the runway at Manchester Airport before shooting straight up into the clouds.",
+    "place": "Manchester Airport, UK",
+    "lat": 53.353,
+    "lon": -2.274,
+    "posted": "2024-06-26"
+  },
+  {
+    "n": 35,
+    "id": "7429104859208404256",
+    "handle": "yorkshire_nightsky",
+    "caption": "Silent black triangle craft with three dim white corner lights gliding low over Sheffield and the Peak District.",
+    "place": "Sheffield, South Yorkshire",
+    "lat": 53.381,
+    "lon": -1.47,
+    "posted": "2024-10-23"
+  },
+  {
+    "n": 36,
+    "id": "7432019482710543648",
+    "handle": "humberside_uap",
+    "caption": "Two bright pulsing spheres pacing each other across the Humber Estuary between Hull and Barton-upon-Humber.",
+    "place": "Barton-upon-Humber, Lincolnshire",
+    "lat": 53.683,
+    "lon": -0.45,
+    "posted": "2024-10-31"
+  },
+  {
+    "n": 37,
+    "id": "7418559201930071328",
+    "handle": "lincsskywatch",
+    "caption": "Stationary diamond-shaped light hovering over North Lincolnshire near Scunthorpe before splitting into two.",
+    "place": "Scunthorpe, North Lincolnshire",
+    "lat": 53.592,
+    "lon": -0.645,
+    "posted": "2024-09-24"
+  },
+  {
+    "n": 38,
+    "id": "7409821049283710240",
+    "handle": "scotland_ufos",
+    "caption": "Glowing orange sphere performing 90-degree turns over Bonnybridge and Falkirk, Scotland.",
+    "place": "Bonnybridge, Scotland",
+    "lat": 56.002,
+    "lon": -3.888,
+    "posted": "2024-08-31"
+  },
+  {
+    "n": 39,
+    "id": "7397114820192832800",
+    "handle": "london_optics",
+    "caption": "Cluster of 6 metallic silver spheres drifting in formation high over Crystal Palace, South London in clear daylight.",
+    "place": "Crystal Palace, London",
+    "lat": 51.42,
+    "lon": -0.07,
+    "posted": "2024-07-29"
+  },
+  {
+    "n": 40,
+    "id": "7425501928374652192",
+    "handle": "pentyrch_research",
+    "caption": "Low-flying structured light filmed descending toward the treeline near Pentyrch and Cardiff, South Wales.",
+    "place": "Pentyrch, South Wales",
+    "lat": 51.531,
+    "lon": -3.303,
+    "posted": "2024-10-14"
+  },
+  {
+    "n": 41,
+    "id": "7411902837465199904",
+    "handle": "cornwall_coast_uap",
+    "caption": "Fast luminous object emerging over the Atlantic off Newquay, Cornwall and accelerating inland.",
+    "place": "Newquay, Cornwall",
+    "lat": 50.415,
+    "lon": -5.073,
+    "posted": "2024-09-06"
+  },
+  {
+    "n": 42,
+    "id": "7439012938475610912",
+    "handle": "tyneside_sky",
+    "caption": "Ring of rotating white lights hovering silently below the cloud base over Newcastle upon Tyne.",
+    "place": "Newcastle upon Tyne, UK",
+    "lat": 54.978,
+    "lon": -1.617,
+    "posted": "2024-11-19"
   }
 ]
