@@ -942,6 +942,9 @@ class MainActivity : AppCompatActivity() {
         val now = SystemClock.uptimeMillis()
         if (!force && now - lastUkFetchAt < 30_000L) return
         lastUkFetchAt = now
+        if (force) {
+            Toast.makeText(this, "📡 Scanning UK live feeds…", Toast.LENGTH_SHORT).show()
+        }
         val existingIds = data.social.mapNotNull { it.video?.id }.toSet()
         LiveTikTokFetcher.fetchUkClipsAsync(this, existingIds, force = force) { newClips ->
             runOnUiThread {

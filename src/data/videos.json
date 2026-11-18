@@ -176,7 +176,304 @@
     "note": "The unedited cassette Lt. Col. Charles Halt recorded in the forest on the second night, with radiation readings and lights reported in real time."
   },
   {
-    "n": 17,
+    "videoId": "6rWOtrke0HY",
+    "title": "FLIR1: Official UAP Footage from the USG for Public Release",
+    "channel": "To The Stars Academy of Arts & Science",
+    "place": "Off San Diego, California",
+    "lat": 32.72,
+    "lon": -117.62,
+    "date": "2004-11-14",
+    "note": "The 2004 Nimitz \"Tic Tac\" clip, released by the Pentagon in 2020. The object has never been identified.",
+    "n": 17
+  },
+  {
+    "videoId": "wxVRg7LLaQA",
+    "title": "Go Fast: Official USG Footage of UAP for Public Release",
+    "channel": "To The Stars Academy of Arts & Science",
+    "place": "Atlantic Ocean off Florida",
+    "lat": 29.5,
+    "lon": -79.5,
+    "date": "2015-01-21",
+    "note": "Official Navy ATFLIR clip from a 2015 training exercise. AARO later attributed the apparent speed to parallax.",
+    "n": 18
+  },
+  {
+    "videoId": "GIqIRXgQcC4",
+    "title": "UFO/UAP Orb Footage STS-48 space shuttle Discovery",
+    "channel": "Michelle Asjes",
+    "place": "Low Earth orbit",
+    "lat": null,
+    "lon": null,
+    "date": "1991-09-15",
+    "note": "Discovery's cargo-bay camera films a bright object changing direction after a flash. NASA attributed it to ice particles and thruster firings.",
+    "n": 19
+  },
+  {
+    "videoId": "q8pymWSKAPQ",
+    "title": "Children talk about witnessing the 1994 UFO landing at the Ariel School",
+    "channel": "Eyes On Cinema",
+    "place": "Ruwa, Zimbabwe",
+    "lat": -17.889,
+    "lon": 31.245,
+    "date": "1994-09-16",
+    "note": "62 children at a Zimbabwe school described a landed silver craft and a figure during morning break. Interviews were filmed days later.",
+    "n": 20
+  },
+  {
+    "videoId": "mPbDa5D7IUE",
+    "title": "The Shag Harbour UFO Incident - Full Documentary",
+    "channel": "Ocean Digital Entertainment",
+    "place": "Shag Harbour, Nova Scotia",
+    "lat": 43.496,
+    "lon": -65.706,
+    "date": "1967-10-04",
+    "note": "A lit object descended into the water off Nova Scotia. The coast guard and RCMP searched without finding debris.",
+    "n": 21
+  },
+  {
+    "videoId": "m_eoMSI1KNU",
+    "title": "Extraordinary 1976 UFO incident in Tehran, Iran",
+    "channel": "Eyes On Cinema",
+    "place": "Tehran, Iran",
+    "lat": 35.689,
+    "lon": 51.389,
+    "date": "1976-09-18",
+    "note": "An Iranian F-4 crew reported a bright object that jammed instruments and released a smaller craft.",
+    "n": 22
+  },
+  {
+    "videoId": "Np5wvh-PsR4",
+    "title": "Operação Prato: UFO encounters investigated by the Brazilian Air Force",
+    "channel": "Eyes On Cinema",
+    "place": "Colares, Brazil",
+    "lat": -0.863,
+    "lon": -48.281,
+    "date": "1977-11-01",
+    "note": "Brazil's Air Force investigated lights and attacks on villagers around Colares in 1977-78.",
+    "n": 23
+  },
+  {
+    "videoId": "zp7xw57xiUM",
+    "title": "Mystery Wire - Pyramid UFO swarm over Navy destroyer",
+    "channel": "Mystery Wire",
+    "place": "Off San Diego, California",
+    "lat": 32.72,
+    "lon": -117.62,
+    "date": "2019-07-15",
+    "note": "Night-vision footage from USS Russell. AARO says the \"pyramid\" look comes from defocused point lights.",
+    "n": 24
+  },
+  {
+    "videoId": "hpyCIaw-CL4",
+    "title": "UFO fleet with FLIR by Mexican Air Force pilots over Campeche",
+    "channel": "Luis Andrés Jaspersen Revilla",
+    "place": "Campeche, Mexico",
+    "lat": 19.83,
+    "lon": -90.53,
+    "date": "2004-03-05",
+    "note": "Eleven heat sources filmed by a Mexican Air Force crew. Analysts later linked them to offshore oil-platform flares.",
+    "n": 25
+  },
+  {
+    "videoId": "MltYE53a_Po",
+    "title": "'Jellyfish' UFO clip: expert on the Iraq UAP video",
+    "channel": "NewsNation",
+    "place": "Over Iraq",
+    "lat": 33.3,
+    "lon": 43.7,
+    "date": "2023-01-01",
+    "note": "A clip said to show a jellyfish-shaped object over a US base in Iraq. Date, place and source remain unverified.",
+    "n": 26
+  },
+  {
+    "videoId": "D3qWyN8rxzw",
+    "title": "1966 UFO Sightings in Dexter, Michigan - A Mini-Documentary",
+    "channel": "Michigan Online",
+    "place": "Dexter, Michigan",
+    "lat": 42.33,
+    "lon": -83.89,
+    "date": "1966-03-25",
+    "note": "The \"swamp gas\" flap that pushed J. Allen Hynek into the national spotlight in March 1966.",
+    "n": 27
+  },
+  {
+    "videoId": "T64jReeun3A",
+    "title": "School kids on witnessing a landed UFO at Broad Haven, Wales",
+    "channel": "Eyes On Cinema",
+    "place": "Broad Haven, Wales",
+    "lat": 51.781,
+    "lon": -5.103,
+    "date": "1977-02-04",
+    "note": "Schoolchildren described a silver domed craft in a field. Their matching drawings made it a landmark Welsh case.",
+    "n": 28
+  },
+  {
+    "videoId": "9zTUspQlS8E",
+    "title": "The Alien Abduction: Pascagoula man says he had an encounter with aliens",
+    "channel": "FOX10 News",
+    "place": "Pascagoula, Mississippi",
+    "lat": 30.366,
+    "lon": -88.556,
+    "date": "1973-10-11",
+    "note": "Charles Hickson and Calvin Parker said they were taken aboard a craft while fishing in 1973.",
+    "n": 29
+  },
+  {
+    "n": 30,
+    "videoId": "7j1NwlKL9zQ",
+    "title": "The Calvine UFO Sighting",
+    "channel": "Jimmy Akin's Mysterious World",
+    "place": "Calvine, Scottish Highlands",
+    "lat": 56.77,
+    "lon": -3.85,
+    "date": "1990-08-04",
+    "note": "A case study of the 1990 Calvine report: two witnesses described a diamond-shaped object near Pitlochry and a Harrier jet making passes. Details are presented as reported claims, not verified evidence."
+  },
+  {
+    "n": 31,
+    "videoId": "_ey7Mc4979A",
+    "title": "Top 10 Alien Close Encounters in Britain",
+    "channel": "WatchMojoUK",
+    "place": "Britain, United Kingdom",
+    "lat": 54.5,
+    "lon": -3.4,
+    "date": "2020-06-05",
+    "note": "A Britain-focused compilation covering reported cases including the Berkshire rugby-ball account, Dudley Dorito, Ilkley Moor, Falkirk Triangle and Rendlesham Forest. Published 5 June 2020; the cases are unverified claims."
+  },
+  {
+    "n": 32,
+    "videoId": "V1S-7JG7pr8",
+    "title": "Top 10 UFO Sightings in Britain",
+    "channel": "WatchMojoUK",
+    "place": "Britain, United Kingdom",
+    "lat": 54.5,
+    "lon": -3.4,
+    "date": "2020-10-04",
+    "note": "A Britain-focused compilation covering reported cases including Kim Wilde's report, the Dark Peak sonic booms, the Robert Taylor incident, West Freugh and Lakenheath-Bentwaters. Published 4 October 2020; the cases are unverified claims."
+  },
+  {
+    "n": 33,
+    "videoId": "GW86Kf1ux94",
+    "title": "Top 20 Alien Close Encounters in Britain",
+    "channel": "WatchMojoUK",
+    "place": "Britain, United Kingdom",
+    "lat": 54.5,
+    "lon": -3.4,
+    "date": "2021-09-28",
+    "note": "A longer Britain-focused compilation of reported alien and UFO encounters. Published 28 September 2021; this is a third-party summary of unverified claims."
+  },
+  {
+    "n": 34,
+    "videoId": "KK3ZgwgJ8kY",
+    "title": "The 1993 Cosford Incident: Nick Pope's Turning Point on UFOs",
+    "channel": "Eyes On Cinema",
+    "place": "RAF Cosford, Shropshire",
+    "lat": 52.64,
+    "lon": -2.3,
+    "date": "1993-03-31",
+    "note": "A six-hour wave of sightings across western England and Wales on 30-31 March 1993, including RAF Cosford and RAF Shawbury. Nick Pope led the MoD inquiry; the National Archives later attributed many reports to a Russian rocket re-entry."
+  },
+  {
+    "n": 35,
+    "videoId": "hxo65ym4dog",
+    "title": "'The Welsh Roswell' - the Berwyn mountain UFO crash",
+    "channel": "Eyes On Cinema",
+    "place": "Llandrillo, Wales",
+    "lat": 52.92,
+    "lon": -3.44,
+    "date": "1974-01-23",
+    "note": "Residents near Llandrillo reported a bright light and an apparent crash on 23 January 1974, the same night as a small earthquake. Dubbed the 'Welsh Roswell'; no wreckage was found."
+  },
+  {
+    "n": 36,
+    "videoId": "dv7Dy_EJkL4",
+    "title": "Robert Taylor on being attacked by a UFO in Dechmont Woods",
+    "channel": "Eyes On Cinema",
+    "place": "Dechmont Woods, West Lothian",
+    "lat": 55.92,
+    "lon": -3.56,
+    "date": "1979-11-09",
+    "note": "Forestry worker Robert Taylor said a metallic dome and two smaller spheres knocked him down in Dechmont Woods. Police treated it as a possible assault and recorded ground marks; it remains Scotland's best-known close encounter."
+  },
+  {
+    "n": 37,
+    "videoId": "eOsQkXzS2Ew",
+    "title": "RAF Lakenheath UFO | Police footage | November 2024",
+    "channel": "UAP Files Podcast",
+    "place": "RAF Lakenheath, Suffolk",
+    "lat": 52.41,
+    "lon": 0.56,
+    "date": "2024-11-22",
+    "note": "NPAS helicopter footage from the November 2024 drone flap over US air bases in Suffolk. A later Airprox report found one 'drone' the crew dodged was a US F-15; the wider drone reports were never publicly explained."
+  },
+  {
+    "n": 38,
+    "videoId": "F0dMlej9QJg",
+    "title": "UFO file release June 2013",
+    "channel": "The National Archives UK",
+    "place": "Kew, London",
+    "lat": 51.48,
+    "lon": -0.28,
+    "date": "2013-06-25",
+    "note": "Highlights from the final release of Ministry of Defence UFO files to The National Archives, covering reports, policy and Parliamentary correspondence from the 1950s to 2009."
+  },
+  {
+    "n": 39,
+    "videoId": "H4AxRTzASxE",
+    "title": "UFO Roswell Incident (Full Episode)",
+    "channel": "National Geographic",
+    "place": "Roswell, New Mexico",
+    "lat": 33.3943,
+    "lon": -104.523,
+    "date": "1947-07-08",
+    "note": "A documentary episode tracing the 1947 Army Air Forces press release, the later weather-balloon explanation, Jesse Marcel's account and the continuing Roswell debate. Claims and testimony are presented as disputed historical accounts."
+  },
+  {
+    "n": 40,
+    "videoId": "RCAHyclAmZs",
+    "title": "Roswell's First Witness Testimonial | History's Greatest Mysteries",
+    "channel": "HISTORY",
+    "place": "Roswell, New Mexico",
+    "lat": 33.3943,
+    "lon": -104.523,
+    "date": "1947-07-08",
+    "note": "A full episode investigating Major Jesse Marcel's journal, the reported debris field and witness accounts connected to Roswell. The program explores disputed claims rather than establishing that a UFO crashed."
+  },
+  {
+    "n": 41,
+    "videoId": "FqB0BKOdm_E",
+    "title": "“Roswell: The First Witness” on the HISTORY channel",
+    "channel": "WGN News",
+    "place": "Roswell, New Mexico",
+    "lat": 33.3943,
+    "lon": -104.523,
+    "date": "1947-07-08",
+    "note": "WGN News interviews investigative journalist Don Schmitt about alleged new evidence and a diary attributed to an early investigator of the Roswell wreckage. This is a reported claim, not verified evidence."
+  },
+  {
+    "n": 42,
+    "videoId": "sbtvxBXEHVw",
+    "title": "Roswell - UFO Crash in New Mexico",
+    "channel": "Free Documentary - History",
+    "place": "Roswell, New Mexico",
+    "lat": 33.3943,
+    "lon": -104.523,
+    "date": "1947-07-08",
+    "note": "A history documentary focused on Major Jesse Marcel, the debris story and the legacy of the 1947 Roswell incident, including testimony from his family. The extraterrestrial interpretation remains disputed."
+  },
+  {
+    "n": 43,
+    "videoId": "TPpQnSKucvw",
+    "title": "Unexplained in the Desert | Legend of the Roswell Crash",
+    "channel": "Always On Entertainment",
+    "place": "Roswell, New Mexico",
+    "lat": 33.3943,
+    "lon": -104.523,
+    "date": "1947-07-08",
+    "note": "A paranormal documentary covering the Roswell crash narrative, the Army press release, Jesse Marcel, Project Mogul and later cover-up allegations. It is an entertainment documentary about unverified claims."
+  },
+  {
+    "n": 44,
     "videoId": "VBLLPRD3tDE",
     "title": "USAF UK Bases Flooded With Sightings: What’s REALLY Happening?",
     "channel": "Geeksvana",
@@ -187,7 +484,7 @@
     "note": "Geeksvana examines reports of UAP sightings around USAF bases in the UK, including RAF Lakenheath and RAF Mildenhall, during the November 2024 drone/UAP flap. The claims remain unverified."
   },
   {
-    "n": 18,
+    "n": 45,
     "videoId": "ao9_mIZKZhY",
     "title": "UFO SPOTTED at Manchester Airport! What's Going On?",
     "channel": "Explore With Ant",
@@ -198,7 +495,7 @@
     "note": "Commentary on a viral report of a spherical object near Manchester Airport. The footage and its interpretation are unverified."
   },
   {
-    "n": 19,
+    "n": 46,
     "videoId": "9KAZE1wmV9k",
     "title": "UFO caught on camera 'travelling 106mph' in Wales as UK gov urged to come clean",
     "channel": "The Sun",
@@ -209,7 +506,7 @@
     "note": "The Sun reports on footage said to show an object travelling at 106 mph over South Wales, amid calls for the UK government to release UAP data. The object's identity is unresolved."
   },
   {
-    "n": 20,
+    "n": 47,
     "videoId": "CI-x0NM3wJQ",
     "title": "UFO sighting over Wales, UK 2018. video taken on an infra red camera.",
     "channel": "Sad Fantasy",
@@ -220,7 +517,7 @@
     "note": "Infrared camera footage said to show a luminous object over North Wales in 2018. The clip is presented as a UAP; no independent identification is available."
   },
   {
-    "n": 21,
+    "n": 48,
     "videoId": "NA_hY62ak5E",
     "title": "WATCH: Tic Tac UFO seen Hovering Over Scotland! #ufo #shorts",
     "channel": "Orbit - Beyond the Blue",
@@ -231,7 +528,7 @@
     "note": "Short clip described as a Tic Tac-shaped object over the Scottish Highlands. The footage is unverified."
   },
   {
-    "n": 22,
+    "n": 49,
     "videoId": "T7jkqsCa4-I",
     "title": "The Town with the Most UFO Sightings in the World",
     "channel": "Jordi Busquets",
@@ -242,7 +539,7 @@
     "note": "Short documentary visit to Bonnybridge, the Scottish town at the centre of the Falkirk Triangle and decades of UFO reports. Includes local accounts and case history; claims are unverified."
   },
   {
-    "n": 23,
+    "n": 50,
     "videoId": "Yd25HLhAVuU",
     "title": "Police helicopter captures UFO",
     "channel": "SWNS",
@@ -253,7 +550,7 @@
     "note": "South Wales Police helicopter thermal footage filmed 1,000 ft over the Bristol Channel, showing a bright spherical object moving against the wind. The object remains unidentified."
   },
   {
-    "n": 24,
+    "n": 51,
     "videoId": "0mQ1kGk2A88",
     "title": "The story of the Calvine UFO photograph",
     "channel": "BBC News",
@@ -264,7 +561,7 @@
     "note": "BBC retrospective on the 1990 Calvine photograph, the unpublished image, the MoD records and the search for the original negatives. The case remains unexplained."
   },
   {
-    "n": 25,
+    "n": 52,
     "videoId": "gEbYr7AL8BI",
     "title": "The Bempton Mystery: Something Is Happening On The Yorkshire Coast",
     "channel": "Project Blue World",
@@ -275,7 +572,7 @@
     "note": "Investigation of strange lights and unexplained activity around Bempton and the Yorkshire coast, including witness accounts. Presented as an unresolved mystery; no conclusion is established."
   },
   {
-    "n": 26,
+    "n": 53,
     "videoId": "bPhJbyen7ks",
     "title": "FIRST SOLO WILDCAMP UK - Ilkley Moor the UK UFO Hotspot!",
     "channel": "BOTG Adventures",
@@ -284,60 +581,5 @@
     "lon": -1.822,
     "date": "2019-09-10",
     "note": "Outdoor filmmaker wild-camps on Ilkley Moor and explores the area's reputation as a UFO hotspot, including the 1987 Ilkley Moor alien photograph case. This is a location feature, not verified UAP footage."
-  },
-  {
-    "n": 27,
-    "videoId": "fB4U8nN2BFc",
-    "title": "Bonnybridge & Falkirk Triangle UFO Footage Compilation",
-    "channel": "Scotland UAP Archive",
-    "place": "Bonnybridge, Scotland",
-    "lat": 56.002,
-    "lon": -3.888,
-    "date": "1995-08-11",
-    "note": "Eyewitness video recorded in the Falkirk Triangle hotspot at Bonnybridge showing hovering amber spheres and structured nocturnal lights."
-  },
-  {
-    "n": 28,
-    "videoId": "7pK8d9B1rE4",
-    "title": "NPAS Police Helicopter FLIR Thermal UFO Over Bristol Channel",
-    "channel": "NPAS St Athan Release",
-    "place": "Cardiff, Wales",
-    "lat": 51.402,
-    "lon": -3.284,
-    "date": "2016-09-16",
-    "note": "Official WESCAM MX-15 thermal infrared footage recorded by NPAS 47 police helicopter crew at 1,000 ft over the Bristol Channel, tracking a hot spherical object flying into the wind for 7 minutes."
-  },
-  {
-    "n": 29,
-    "videoId": "wH2L8vK9xM0",
-    "title": "Calvine Diamond UFO — Scottish MoD Case & Site Reconstruction",
-    "channel": "Sheffield Hallam UAP",
-    "place": "Calvine, Perthshire",
-    "lat": 56.77,
-    "lon": -3.978,
-    "date": "1990-08-04",
-    "note": "Investigation and photographic analysis of the 100-foot diamond-shaped craft photographed hovering silently near a Hawker Siddeley Harrier jet at Calvine along the A9."
-  },
-  {
-    "n": 30,
-    "videoId": "kR9mP3xQ2vA",
-    "title": "Humber Estuary & North Lincolnshire Amber Orb Formation",
-    "channel": "Humber Skywatch",
-    "place": "Scunthorpe, North Lincolnshire",
-    "lat": 53.589,
-    "lon": -0.65,
-    "date": "2024-10-19",
-    "note": "Three glowing orange-amber spheres filmed moving in a stepped triangular formation from Scunthorpe toward the Humber Bridge before accelerating vertically."
-  },
-  {
-    "n": 31,
-    "videoId": "mN4vC8zX1qL",
-    "title": "Ilkley Moor & West Yorkshire Low-Altitude Disc",
-    "channel": "Pennine UAP",
-    "place": "Ilkley Moor, West Yorkshire",
-    "lat": 53.925,
-    "lon": -1.822,
-    "date": "2023-07-08",
-    "note": "Metallic saucer-shaped object filmed hovering above the moorland ridge between Ilkley and Keighley in broad daylight."
   }
 ]

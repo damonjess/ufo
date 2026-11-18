@@ -358,18 +358,17 @@ object LiveTikTokFetcher {
                 if (!seen.add(clipId)) continue
                 val canonicalUrl = "https://www.tiktok.com/@$rawHandle/video/$clipId"
 
-                // 1. Try fast oEmbed JSON first (never blocked by JS challenges)
-                val oembed = fetchOembed(canonicalUrl)
-                val oembedTitle = oembed?.title.orEmpty()
-                val oembedAuthor = oembed?.author.orEmpty()
+                // Require a valid HTTP 200 oEmbed response so dead/unavailable clips are never cached
+                val oembedJson = fetchOembed(canonicalUrl) ?: continue
+                val rawDesc = oembedJson.optString("title").trim()
+                if (rawDesc.isEmpty()) continue
 
-                // 2. Supplement with page HTML for POI / locationCreated if needed
-                val pageHtml = if (oembedTitle.isBlank()) httpGet(canonicalUrl) else null
-                val rawDesc = oembedTitle.ifBlank {
-                    pageHtml?.let { DESC_REGEX.find(it)?.groupValues?.get(1) }
-                        ?.let { unescapeJson(it) }
-                        .orEmpty()
+                val oembedAuthor = oembedJson.optString("author_unique_id").ifBlank {
+                    oembedJson.optString("author_name")
                 }
+
+                // Supplement with page HTML for POI / locationCreated if needed
+                val pageHtml = httpGet(canonicalUrl)
                 val poiName = pageHtml?.let { POI_REGEX.find(it)?.groupValues?.get(1) }
                     ?.let { unescapeJson(it) }
                     .orEmpty()
@@ -377,7 +376,7 @@ object LiveTikTokFetcher {
                     .orEmpty()
 
                 val handle = rawHandle.removePrefix("@").ifBlank { oembedAuthor.ifBlank { "tiktok" } }
-                if (rawDesc.isNotBlank() && !UFO_KEYWORD_REGEX.containsMatchIn("$rawDesc $handle")) {
+                if (!UFO_KEYWORD_REGEX.containsMatchIn("$rawDesc $handle")) {
                     continue
                 }
 
@@ -438,26 +437,15 @@ object LiveTikTokFetcher {
                     tmp.copyTo(f, overwrite = true)
                     tmp.delete()
                 }
-                onNewClips(discovered)
             }
+            onNewClips(discovered)
         }
     }
 
-    private data class OembedData(val title: String, val author: String)
-
-    private fun fetchOembed(videoUrl: String): OembedData? {
+    private fun fetchOembed(videoUrl: String): JSONObject? {
         val url = "https://www.tiktok.com/oembed?url=" + URLEncoder.encode(videoUrl, "UTF-8")
         val body = httpGet(url) ?: return null
-        val jsonObj = runCatching { JSONObject(body) }.getOrNull()
-        val title = jsonObj?.optString("title").orEmpty().ifBlank {
-            Regex(""""title"\s*:\s*"((?:\\.|[^"\\])*)"""").find(body)?.groupValues?.get(1)?.let { unescapeJson(it) }.orEmpty()
-        }
-        val author = jsonObj?.optString("author_unique_id").orEmpty()
-            .ifBlank { jsonObj?.optString("author_name").orEmpty() }
-            .ifBlank {
-                Regex(""""author_name"\s*:\s*"((?:\\.|[^"\\])*)"""").find(body)?.groupValues?.get(1)?.let { unescapeJson(it) }.orEmpty()
-            }
-        return OembedData(title, author)
+        return runCatching { JSONObject(body) }.getOrNull()
     }
 
     private fun jitterCoords(lat: Double, lon: Double, seedStr: String): Pair<Double, Double> {
