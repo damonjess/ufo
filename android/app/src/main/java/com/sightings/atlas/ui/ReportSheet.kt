@@ -305,20 +305,12 @@ class ReportSheet(
 
         val web = WebView(context)
         web.setBackgroundColor(Color.BLACK)
+        android.webkit.CookieManager.getInstance().setAcceptCookie(true)
+        android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
         web.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
             mediaPlaybackRequiresUserGesture = false
-            allowFileAccess = false
-            allowContentAccess = false
-            // Strip "; wv" so the official players treat this as a standard mobile browser.
-            userAgentString = userAgentString
-                .replace("; wv)", ")")
-                .replace(Regex("Version/\\d+\\.\\d+\\s+"), "")
-        }
-        android.webkit.CookieManager.getInstance().apply {
-            setAcceptCookie(true)
-            setAcceptThirdPartyCookies(web, true)
         }
         web.webViewClient = WebViewClient()
 
@@ -333,59 +325,31 @@ class ReportSheet(
         }
         frame.addView(web, layout)
 
-        val encodedId = Uri.encode(video.id)
-        if (isTikTok) {
-            loadTikTokPlayer(web, encodedId)
+        if (video.isTikTok) {
+            val html = """
+                <!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+                <style>html,body{margin:0;padding:0;background:#000;height:100%;overflow:hidden;}iframe{width:100%;height:100%;border:0;}</style>
+                </head><body>
+                <iframe src="https://www.tiktok.com/embed/v2/${video.id}" allow="autoplay; encrypted-media; fullscreen" allowfullscreen></iframe>
+                </body></html>
+            """.trimIndent()
+            web.loadDataWithBaseURL("https://www.tiktok.com/", html, "text/html", "UTF-8", null)
         } else {
-            loadYouTubePlayer(web, encodedId)
+            val html = """
+                <!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+                <meta name="referrer" content="strict-origin-when-cross-origin">
+                <style>html,body{margin:0;padding:0;background:#000;height:100%;overflow:hidden;}iframe{width:100%;height:100%;border:0;}</style>
+                </head><body>
+                <iframe src="https://www.youtube-nocookie.com/embed/${video.id}?autoplay=1&playsinline=1&rel=0"
+                    referrerpolicy="strict-origin-when-cross-origin"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowfullscreen></iframe>
+                </body></html>
+            """.trimIndent()
+            web.loadDataWithBaseURL("https://www.youtube-nocookie.com/", html, "text/html", "UTF-8", null)
         }
         webView = web
     }
-
-    /** Hosts the TikTok player in a page so the iframe gets a normal web origin. */
-    private fun loadTikTokPlayer(web: WebView, encodedId: String) {
-        val baseUrl = "https://sightings.app/"
-        val src = "https://www.tiktok.com/player/v1/$encodedId" +
-            "?autoplay=1&loop=0&rel=0&native_context_menu=0"
-        val html = playerPage(src, "TikTok video player")
-        web.loadDataWithBaseURL(baseUrl, html, "text/html", "utf-8", null)
-    }
-
-    /**
-     * YouTube requires the embed request to carry an HTTP Referer identifying the client.
-     * A directly-loaded embed URL has no parent document, so host it in a small local page.
-     */
-    private fun loadYouTubePlayer(web: WebView, encodedId: String) {
-        val baseUrl = "https://sightings.app/"
-        val origin = "https://sightings.app"
-        val src = "https://www.youtube.com/embed/$encodedId" +
-            "?autoplay=1&playsinline=1&rel=0&modestbranding=1&fs=1" +
-            "&enablejsapi=1&origin=${Uri.encode(origin)}" +
-            "&widget_referrer=${Uri.encode(baseUrl)}"
-        web.loadDataWithBaseURL(baseUrl, playerPage(src, "YouTube video player"), "text/html", "utf-8", null)
-    }
-
-    private fun playerPage(src: String, title: String): String = """
-        <!doctype html>
-        <html>
-        <head>
-        <meta name="referrer" content="strict-origin-when-cross-origin">
-        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-        <style>
-        html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
-        iframe { display: block; width: 100%; height: 100%; border: 0; }
-        </style>
-        </head>
-        <body>
-        <iframe
-            src="${src.replace("&", "&amp;")}"
-            title="$title"
-            referrerpolicy="strict-origin-when-cross-origin"
-            allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-            allowfullscreen></iframe>
-        </body>
-        </html>
-    """.trimIndent()
 
     fun setSaved(saved: Boolean) {
         val save = dialog?.findViewById<TextView>(R.id.detailSave) ?: return

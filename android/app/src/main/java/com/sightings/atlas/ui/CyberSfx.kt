@@ -81,13 +81,18 @@ object CyberSfx {
         }
     }
 
-    fun toggle(context: Context): Boolean {
-        enabled = !enabled
+    fun setEnabled(context: Context, value: Boolean) {
+        if (enabled == value) return
+        enabled = value
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
-            .putBoolean(KEY_SFX_ENABLED, enabled)
+            .putBoolean(KEY_SFX_ENABLED, value)
             .apply()
-        if (enabled) confirm()
+        if (value) confirm()
+    }
+
+    fun toggle(context: Context): Boolean {
+        setEnabled(context, !enabled)
         return enabled
     }
 

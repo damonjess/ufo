@@ -586,6 +586,17 @@ class MainActivity : AppCompatActivity() {
             ),
         )
         legend.addView(
+            legendChip(
+                text = if (CyberSfx.enabled) "⚙ SETTINGS" else "⚙ SETTINGS (🔇)",
+                dotColor = colorOf(R.color.mint),
+                active = false,
+                dot = false,
+            ) {
+                CyberSfx.tick()
+                showSettingsSheet()
+            },
+        )
+        legend.addView(
             legendChip("All", colorOf(R.color.mint), era == null && !savedOnly && !areaSearchActive) {
                 era = null
                 savedOnly = false
@@ -943,28 +954,42 @@ class MainActivity : AppCompatActivity() {
         if (!force && now - lastUkFetchAt < 30_000L) return
         lastUkFetchAt = now
         if (force) {
-            Toast.makeText(this, "📡 Scanning UK live feeds…", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Scanning UK TikTok & YouTube feeds…", Toast.LENGTH_SHORT).show()
         }
-        val existingIds = data.social.mapNotNull { it.video?.id }.toSet()
+        val existingIds = (data.videos.mapNotNull { it.video?.id } + data.social.mapNotNull { it.video?.id }).toSet()
         LiveTikTokFetcher.fetchUkClipsAsync(this, existingIds, force = force) { newClips ->
             runOnUiThread {
                 val cur = dataset ?: return@runOnUiThread
-                val known = cur.social.mapNotNull { it.video?.id }.toHashSet()
-                var added = 0
+                val known = (cur.videos.mapNotNull { it.video?.id } + cur.social.mapNotNull { it.video?.id }).toHashSet()
+                var addedVideos = 0
+                var addedTikToks = 0
                 for (clip in newClips) {
-                    val cid = clip.video?.id ?: continue
-                    if (known.add(cid)) {
-                        cur.social.add(clip)
-                        added++
+                    val vid = clip.video ?: continue
+                    if (known.add(vid.id)) {
+                        if (vid.isTikTok) {
+                            cur.social.add(clip)
+                            addedTikToks++
+                        } else {
+                            cur.videos.add(clip)
+                            addedVideos++
+                        }
                     }
                 }
-                if (added > 0) {
-                    cur.social.sortWith(compareByDescending<Sighting> { it.date }.thenByDescending { it.id })
+                if (addedVideos + addedTikToks > 0) {
+                    val cmp = compareByDescending<Sighting> { it.date }.thenByDescending { it.id }
+                    cur.videos.sortWith(cmp)
+                    cur.social.sortWith(cmp)
+                    AtlasRepository.cache(cur)
                     updateTabLabels(cur)
-                    refresh()
-                    Toast.makeText(this, "SIGINT: +$added UK clips acquired", Toast.LENGTH_SHORT).show()
+                    refresh(updateGlobePins = true)
+                    CyberSfx.confirm()
+                    Toast.makeText(
+                        this,
+                        "SIGINT: +$addedTikToks TikToks, +$addedVideos Videos plotted",
+                        Toast.LENGTH_SHORT,
+                    ).show()
                 } else if (force) {
-                    Toast.makeText(this, "SIGINT: UK feed up to date", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "SIGINT: No new clips in this pass — tap Scan again for next sector", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -2685,6 +2710,205 @@ class MainActivity : AppCompatActivity() {
             if (index in bins.indices) bins[index]++
         }
         return bins
+    }
+
+    private fun showSettingsSheet() {
+        val dialog = Dialog(this)
+        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+        val scroll = ScrollView(this)
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20f), dp(18f), dp(20f), dp(42f))
+            setBackgroundResource(R.drawable.bg_sheet)
+        }
+        scroll.addView(card)
+        dialog.setContentView(scroll)
+        dialog.window?.apply {
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            setGravity(Gravity.BOTTOM)
+            addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            setDimAmount(0.6f)
+            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+
+        // Header
+        val head = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        head.addView(
+            monoText(16f, colorOf(R.color.text), 0.08f).apply {
+                text = "⚙ // SYSTEM SETTINGS"
+            },
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+        )
+        head.addView(
+            TextView(this).apply {
+                text = "×"
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+                setTextColor(colorOf(R.color.dim))
+                gravity = Gravity.CENTER
+                minWidth = dp(44f)
+                minHeight = dp(44f)
+                setOnClickListener {
+                    CyberSfx.tick()
+                    dialog.dismiss()
+                }
+            },
+        )
+        card.addView(head)
+
+        // Helper to build a clean ON / OFF toggle row
+        fun addToggleRow(
+            title: String,
+            subtitle: String,
+            isChecked: () -> Boolean,
+            onToggle: (Boolean) -> Unit,
+        ) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(12f), dp(12f), dp(12f), dp(12f))
+                setBackgroundResource(R.drawable.bg_chip)
+            }
+            val textCol = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+            }
+            textCol.addView(
+                monoText(11f, colorOf(R.color.text), 0.04f).apply {
+                    text = title
+                },
+            )
+            textCol.addView(
+                monoText(9f, colorOf(R.color.muted), 0.02f).apply {
+                    text = subtitle
+                    setPadding(0, dp(3f), 0, 0)
+                },
+            )
+            row.addView(
+                textCol,
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+            )
+
+            val statusBtn = monoText(10f, colorOf(R.color.mint), 0.08f).apply {
+                gravity = Gravity.CENTER
+                setPadding(dp(14f), dp(8f), dp(14f), dp(8f))
+            }
+
+            fun syncButton() {
+                val active = isChecked()
+                statusBtn.text = if (active) "🔊 ON" else "🔇 OFF"
+                statusBtn.setTextColor(if (active) colorOf(R.color.mint) else colorOf(R.color.muted))
+                statusBtn.setBackgroundResource(if (active) R.drawable.bg_chip_on else R.drawable.bg_chip)
+            }
+            syncButton()
+
+            row.setOnClickListener {
+                val next = !isChecked()
+                onToggle(next)
+                syncButton()
+            }
+            statusBtn.setOnClickListener {
+                val next = !isChecked()
+                onToggle(next)
+                syncButton()
+            }
+
+            row.addView(statusBtn)
+            card.addView(
+                row,
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply { topMargin = dp(8f) },
+            )
+        }
+
+        // --- SECTION 1: AUDIO TELEMETRY ---
+        card.addView(sectionLabel("AUDIO & SOUND FX"))
+
+        addToggleRow(
+            title = "Sound FX (Tactical Audio)",
+            subtitle = "Target lock trills, radar sonar pings, rotary ticks & cipher bursts",
+            isChecked = { CyberSfx.enabled },
+            onToggle = { enabled ->
+                CyberSfx.setEnabled(this, enabled)
+                buildLegend()
+            },
+        )
+
+        val testAudioBtn = monoText(10f, colorOf(R.color.mint), 0.08f).apply {
+            text = "[ ▶ TEST TARGET-LOCK AUDIO ]"
+            gravity = Gravity.CENTER
+            setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
+            setBackgroundResource(R.drawable.bg_chip)
+            setOnClickListener {
+                if (!CyberSfx.enabled) {
+                    CyberSfx.setEnabled(this@MainActivity, true)
+                    buildLegend()
+                }
+                CyberSfx.targetLock()
+                Toast.makeText(this@MainActivity, "Playing Target-Lock SFX", Toast.LENGTH_SHORT).show()
+            }
+        }
+        card.addView(
+            testAudioBtn,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = dp(6f) },
+        )
+
+        // --- SECTION 2: GLOBE & HUD ---
+        card.addView(sectionLabel("GLOBE & HUD DISPLAY"))
+
+        addToggleRow(
+            title = "Auto-Orbit Rotation",
+            subtitle = "Automatically spin the globe when idle",
+            isChecked = { spinning },
+            onToggle = { active ->
+                spinning = active
+                globe.autoRotate = active
+                updateSpinChip()
+                CyberSfx.tick()
+            },
+        )
+
+        addToggleRow(
+            title = "Thermal Density Grid",
+            subtitle = "Render sighting heatmap instead of individual pins",
+            isChecked = { globe.heatMode },
+            onToggle = { active ->
+                globe.heatMode = active
+                styleToggle(heatButton, active)
+                if (active) stopSpin()
+                CyberSfx.tick()
+            },
+        )
+
+        // --- SECTION 3: LIVE FEEDS ---
+        card.addView(sectionLabel("LIVE UK FEEDS"))
+
+        val scanNowBtn = monoText(10f, colorOf(R.color.mint), 0.08f).apply {
+            text = "[ \uD83D\uDCE1 SCAN UK TIKTOK & VIDEO FEEDS NOW ]"
+            gravity = Gravity.CENTER
+            setPadding(dp(12f), dp(11f), dp(12f), dp(11f))
+            setBackgroundResource(R.drawable.bg_chip_on)
+            setOnClickListener {
+                CyberSfx.radarPing()
+                dialog.dismiss()
+                triggerUkTikTokFetch(force = true)
+            }
+        }
+        card.addView(
+            scanNowBtn,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = dp(8f) },
+        )
+
+        dialog.show()
     }
 
     private companion object {

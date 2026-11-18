@@ -26,7 +26,7 @@ class WorldData(
 
 class Dataset(
     val reports: List<Sighting>,
-    val videos: List<Sighting>,
+    val videos: MutableList<Sighting>,
     val social: MutableList<Sighting>,
     val world: WorldData,
 ) {
@@ -59,6 +59,15 @@ object AtlasRepository {
 
     @Volatile
     private var cachedDataset: Dataset? = null
+
+    private val DEAD_IDS = setOf(
+        "kR9mP3xQ2vA", "mN4vC8zX1qL", "7pK8d9B1rE4", "wH2L8vK9xM0",
+        "fB4U8nN2BFc", "ao9_mIZKZhY", "9KAZE1wmV9k", "CI-x0NM3wJQ", "NA_hY62ak5E",
+        "7436864424662568225", "7441289014822194464", "7441652198045224224",
+        "7384910283740826912", "7429104859208404256", "7432019482710543648",
+        "7418559201930071328", "7409821049283710240", "7397114820192832800",
+        "7425501928374652192", "7411902837465199904", "7439012938475610912",
+    )
 
     private val ENTITY = Regex("&#(\\d{1,6});?|&([a-zA-Z]{2,6});")
 
@@ -95,15 +104,19 @@ object AtlasRepository {
             custom.optJSONObject(i)?.let { reports.add(parseReportObject(it)) }
         }
         reports.sortWith(descCmp)
-        val videos = parseVideos(JSONArray(read(context, "data/videos.json"))).sortedWith(descCmp)
+
+        val videos = parseVideos(JSONArray(read(context, "data/videos.json"))).toMutableList()
         val social = parseSocial(JSONArray(read(context, "data/social.json"))).toMutableList()
-        val knownClipIds = social.mapNotNull { it.video?.id }.toHashSet()
+        val knownVideoIds = (videos.mapNotNull { it.video?.id } + social.mapNotNull { it.video?.id }).toHashSet()
+
         for (cached in LiveTikTokFetcher.loadCached(context)) {
-            val id = cached.video?.id ?: continue
-            if (knownClipIds.add(id)) {
-                social.add(cached)
+            val vid = cached.video ?: continue
+            if (vid.id in DEAD_IDS) continue
+            if (knownVideoIds.add(vid.id)) {
+                if (vid.isTikTok) social.add(cached) else videos.add(cached)
             }
         }
+        videos.sortWith(descCmp)
         social.sortWith(descCmp)
         val world = parseWorld(JSONObject(read(context, "data/world.json")))
         return Dataset(reports, videos, social, world).also { cachedDataset = it }
@@ -147,6 +160,8 @@ object AtlasRepository {
         val out = ArrayList<Sighting>(json.length())
         for (i in 0 until json.length()) {
             val o = json.getJSONObject(i)
+            val videoId = o.optString("videoId")
+            if (videoId.isBlank() || videoId in DEAD_IDS) continue
             val date = o.optString("date")
             val channel = unescape(o.optString("channel"))
             val lat = o.optDouble("lat", Double.NaN)
@@ -168,10 +183,11 @@ object AtlasRepository {
                     lat = lat,
                     lon = lon,
                     video = VideoInfo(
-                        id = o.optString("videoId"),
+                        id = videoId,
                         title = unescape(o.optString("title")),
                         channel = channel,
                         note = unescape(o.optString("note")),
+                        platform = "youtube",
                     ),
                 ),
             )
@@ -183,13 +199,15 @@ object AtlasRepository {
         val out = ArrayList<Sighting>(json.length())
         for (i in 0 until json.length()) {
             val o = json.getJSONObject(i)
-            val handle = o.optString("handle")
+            val handle = o.optString("handle").removePrefix("@")
             val clipId = o.optString("id")
+            // Strictly allow only numeric 15..25 digit TikTok IDs and strip dead placeholders
+            if (clipId in DEAD_IDS || clipId.length < 15 || !clipId.all { it.isDigit() }) continue
             val posted = o.optString("posted")
             val lat = if (o.isNull("lat")) Double.NaN else o.optDouble("lat", Double.NaN)
             val lon = if (o.isNull("lon")) Double.NaN else o.optDouble("lon", Double.NaN)
-            val isUk = lat.isFinite() && lon.isFinite() && LiveTikTokFetcher.isInUkRegion(lat, lon)
             val caption = unescape(o.optString("caption"))
+            val isUk = lat.isFinite() && lon.isFinite() && LiveTikTokFetcher.isInUkRegion(lat, lon)
             out.add(
                 Sighting(
                     id = 700000 + o.optInt("n", i + 1),
