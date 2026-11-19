@@ -10,7 +10,7 @@ import java.util.concurrent.TimeUnit
 class LiveTikTokFetcherTest {
 
     @Test
-    fun testLiveTikTokFetchUkClipsAsync() {
+    fun testLiveClipFetchAddsWorldwidePinnedClips() {
         // Clean up test cache file if exists
         File("live_social_cache.json").delete()
 
@@ -24,6 +24,9 @@ class LiveTikTokFetcherTest {
                 dir.mkdirs()
                 return dir
             }
+            override fun getApplicationContext(): android.content.Context {
+                return this
+            }
         }
 
         LiveTikTokFetcher.fetchUkClipsAsync(
@@ -36,17 +39,19 @@ class LiveTikTokFetcherTest {
             }
         )
 
-        // Wait up to 10 seconds for live background discovery
-        val completed = latch.await(10, TimeUnit.SECONDS)
+        // Wait up to 15 seconds for live background discovery
+        val completed = latch.await(15, TimeUnit.SECONDS)
 
         println("Live fetch completed: $completed")
-        println("Discovered live UK TikTok clips: ${discoveredClips.size}")
-        for (c in discoveredClips.take(5)) {
-            println("  -> [${c.video?.id}] ${c.city} (${c.lat}, ${c.lon}): ${c.summary}")
-            assertTrue("City should be in UK or United Kingdom", c.region == "United Kingdom" || c.city.contains("UK") || c.city.contains("United Kingdom") || LiveTikTokFetcher.isInUkRegion(c.lat, c.lon))
-        }
+            println("Discovered live worldwide clips: ${discoveredClips.size}")
+            for (c in discoveredClips.take(5)) {
+                println("  -> [${c.video?.id}] ${c.city} (${c.lat}, ${c.lon}): ${c.summary}")
+                assertTrue("Live clips must have finite coordinates", c.lat.isFinite() && c.lon.isFinite())
+                assertTrue("Latitude must be worldwide-safe", c.lat in -90.0..90.0)
+                assertTrue("Longitude must be worldwide-safe", c.lon in -180.0..180.0)
+            }
 
-        assertTrue("Should discover live UK TikTok clips", discoveredClips.isNotEmpty())
+            assertTrue("Should discover live worldwide clips", discoveredClips.isNotEmpty())
 
         // Clean up
         File("build/tmp/testContext/live_social_cache.json").delete()

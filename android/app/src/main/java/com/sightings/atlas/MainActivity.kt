@@ -954,7 +954,7 @@ class MainActivity : AppCompatActivity() {
         if (!force && now - lastUkFetchAt < 30_000L) return
         lastUkFetchAt = now
         if (force) {
-            Toast.makeText(this, "Scanning UK TikTok & YouTube feeds…", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Scanning worldwide TikTok & YouTube feeds…", Toast.LENGTH_SHORT).show()
         }
         val existingIds = (data.videos.mapNotNull { it.video?.id } + data.social.mapNotNull { it.video?.id }).toSet()
         LiveTikTokFetcher.fetchUkClipsAsync(this, existingIds, force = force) { newClips ->
@@ -2887,10 +2887,10 @@ class MainActivity : AppCompatActivity() {
         )
 
         // --- SECTION 3: LIVE FEEDS ---
-        card.addView(sectionLabel("LIVE UK FEEDS"))
+        card.addView(sectionLabel("LIVE WORLDWIDE FEEDS"))
 
         val scanNowBtn = monoText(10f, colorOf(R.color.mint), 0.08f).apply {
-            text = "[ \uD83D\uDCE1 SCAN UK TIKTOK & VIDEO FEEDS NOW ]"
+            text = "[ \uD83D\uDCE1 SCAN WORLDWIDE TIKTOK & VIDEO FEEDS NOW ]"
             gravity = Gravity.CENTER
             setPadding(dp(12f), dp(11f), dp(12f), dp(11f))
             setBackgroundResource(R.drawable.bg_chip_on)

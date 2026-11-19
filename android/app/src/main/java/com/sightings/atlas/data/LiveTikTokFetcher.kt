@@ -50,8 +50,10 @@ object LiveTikTokFetcher {
     private val TIKTOK_URL_REGEX =
         Regex("""tiktok\.com/@([^/?#"&\s\\]+)/video/(\d{15,25})""", RegexOption.IGNORE_CASE)
 
+    // YouTube changes the surrounding renderer shape frequently. Match the videoId field
+    // itself, while still requiring an 11-character YouTube ID.
     private val YT_VIDEO_ID_REGEX =
-        Regex(""""videoRenderer"\s*:\s*\{\s*"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"""")
+        Regex("""["\\]?videoId["\\]?\s*:\s*["\\]?([a-zA-Z0-9_-]{11})["\\]?""")
 
     private val UFO_SUBSTRING_REGEX =
         Regex(
@@ -244,33 +246,39 @@ object LiveTikTokFetcher {
     )
 
     private val TIKTOK_QUERIES = listOf(
+        RegionQuery("ufo sighting usa", "United States", 39.828, -98.579),
+        RegionQuery("ufo sighting canada", "Canada", 56.130, -106.347),
+        RegionQuery("ufo sighting mexico", "Mexico", 23.635, -102.552),
+        RegionQuery("ufo sighting brazil", "Brazil", -14.235, -51.925),
+        RegionQuery("ufo sighting argentina", "Argentina", -38.416, -63.616),
+        RegionQuery("ufo sighting europe", "Europe", 50.850, 4.352),
+        RegionQuery("ufo sighting france", "France", 46.228, 2.213),
+        RegionQuery("ufo sighting germany", "Germany", 51.165, 10.452),
+        RegionQuery("ufo sighting spain", "Spain", 40.464, -3.750),
+        RegionQuery("ufo sighting italy", "Italy", 41.871, 12.568),
+        RegionQuery("ufo sighting australia", "Australia", -25.274, 133.775),
+        RegionQuery("ufo sighting new zealand", "New Zealand", -40.900, 174.886),
+        RegionQuery("ufo sighting japan", "Japan", 36.204, 138.253),
+        RegionQuery("ufo sighting india", "India", 20.593, 78.963),
+        RegionQuery("ufo sighting south africa", "South Africa", -30.559, 22.938),
         RegionQuery("ufo sighting uk", "United Kingdom", 53.500, -2.200),
-        RegionQuery("ufo uk", "England, UK", 52.800, -1.500),
-        RegionQuery("uap uk", "Lincolnshire, UK", 53.589, -0.650),
-        RegionQuery("ufo london", "London, UK", 51.507, -0.127),
-        RegionQuery("ufo manchester", "Manchester, UK", 53.480, -2.242),
-        RegionQuery("ufo yorkshire", "Yorkshire, UK", 53.959, -1.081),
-        RegionQuery("ufo scotland", "Bonnybridge, Scotland", 56.002, -3.888),
-        RegionQuery("ufo wales", "Cardiff, Wales", 51.481, -3.179),
-        RegionQuery("ufo lakenheath", "RAF Lakenheath, Suffolk", 52.409, 0.561),
-        RegionQuery("orange orb ufo", "Scunthorpe, North Lincolnshire", 53.589, -0.650),
-        RegionQuery("triangle ufo night sky", "Sheffield, South Yorkshire", 53.381, -1.470),
-        RegionQuery("metallic orb ufo", "Manchester Airport, UK", 53.353, -2.274),
+        RegionQuery("uap orb night sky", "Worldwide", 20.000, 0.000),
+        RegionQuery("triangle ufo sighting", "Worldwide", 20.000, 0.000),
     )
 
-    private val YOUTUBE_UK_QUERIES = listOf(
+    private val YOUTUBE_QUERIES = listOf(
+        RegionQuery("ufo sighting usa footage", "United States", 39.828, -98.579),
+        RegionQuery("ufo sighting canada footage", "Canada", 56.130, -106.347),
+        RegionQuery("ufo sighting mexico footage", "Mexico", 23.635, -102.552),
+        RegionQuery("ufo sighting brazil footage", "Brazil", -14.235, -51.925),
+        RegionQuery("ufo sighting europe footage", "Europe", 50.850, 4.352),
+        RegionQuery("ufo sighting france germany italy footage", "Europe", 48.856, 2.352),
+        RegionQuery("ufo sighting australia footage", "Australia", -25.274, 133.775),
+        RegionQuery("ufo sighting japan india footage", "Asia", 34.047, 100.619),
+        RegionQuery("ufo sighting south africa footage", "South Africa", -30.559, 22.938),
         RegionQuery("ufo sighting uk footage", "United Kingdom", 53.500, -2.200),
-        RegionQuery("ufo sighting lincolnshire OR scunthorpe OR cleethorpes", "Scunthorpe, North Lincolnshire", 53.589, -0.650),
-        RegionQuery("ufo sighting yorkshire OR hull OR leeds OR sheffield", "Yorkshire, UK", 53.959, -1.081),
-        RegionQuery("raf lakenheath ufo uap footage", "RAF Lakenheath, Suffolk", 52.409, 0.561),
-        RegionQuery("manchester airport ufo orb footage", "Manchester Airport, UK", 53.353, -2.274),
-        RegionQuery("ufo sighting scotland bonnybridge OR calvine OR glasgow", "Bonnybridge, Scotland", 56.002, -3.888),
-        RegionQuery("ufo sighting wales cardiff OR pentyrch OR swansea", "Cardiff, Wales", 51.481, -3.179),
-        RegionQuery("ufo sighting london uk footage", "London, UK", 51.507, -0.127),
-        RegionQuery("ufo sighting birmingham OR midlands OR nottingham", "Birmingham, West Midlands", 52.486, -1.890),
-        RegionQuery("ufo sighting cornwall OR devon OR bristol", "Bristol, UK", 51.454, -2.587),
-        RegionQuery("ufo sighting newcastle OR sunderland uk", "Newcastle upon Tyne, UK", 54.978, -1.617),
-        RegionQuery("police helicopter ufo uk infrared", "Cardiff, Wales", 51.402, -3.284),
+        RegionQuery("uap orb night sky footage", "Worldwide", 20.000, 0.000),
+        RegionQuery("triangle ufo sighting footage", "Worldwide", 20.000, 0.000),
     )
 
     private val UK_GAZETTEER = linkedMapOf(
@@ -357,8 +365,8 @@ object LiveTikTokFetcher {
                         year = posted.take(4).toIntOrNull() ?: 2025,
                         time = "",
                         city = place,
-                        region = "United Kingdom",
-                        cc = "gb",
+                        region = if (isInUkRegion(lat, lon)) "United Kingdom" else "",
+                        cc = if (isInUkRegion(lat, lon)) "gb" else "",
                         country = displayChannel,
                         shape = "video",
                         duration = "",
@@ -396,10 +404,10 @@ object LiveTikTokFetcher {
         force: Boolean = false,
         onNewClips: (List<Sighting>) -> Unit,
     ) {
-        val appCtx = context.applicationContext
+        val appCtx = runCatching { context.applicationContext }.getOrNull() ?: context
         executor.execute {
             for (old in OLD_CACHE_FILES) {
-                File(appCtx.filesDir, old).delete()
+                runCatching { File(appCtx.filesDir, old).delete() }
             }
             val discovered = ArrayList<Sighting>()
             val seen = HashSet(existingIds)
@@ -411,9 +419,12 @@ object LiveTikTokFetcher {
                 seen.add(cachedArr.optJSONObject(i)?.optString("id").orEmpty())
             }
 
-            val prefs = appCtx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val pass = prefs.getInt(KEY_SCAN_PASS, 0)
-            prefs.edit().putInt(KEY_SCAN_PASS, pass + 1).apply()
+            val pass = runCatching {
+                val prefs = appCtx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                val p = prefs.getInt(KEY_SCAN_PASS, 0)
+                prefs.edit().putInt(KEY_SCAN_PASS, p + 1).apply()
+                p
+            }.getOrDefault(0)
 
             var nextN = cachedArr.length() + 100
 
@@ -443,8 +454,8 @@ object LiveTikTokFetcher {
                         year = tk.posted.take(4).toIntOrNull() ?: 2025,
                         time = "",
                         city = tk.place,
-                        region = "United Kingdom",
-                        cc = "gb",
+                        region = if (isInUkRegion(tk.lat, tk.lon)) "United Kingdom" else "",
+                        cc = if (isInUkRegion(tk.lat, tk.lon)) "gb" else "",
                         country = "@${tk.handle}",
                         shape = "video",
                         duration = "",
@@ -490,8 +501,8 @@ object LiveTikTokFetcher {
                         year = yt.posted.take(4).toIntOrNull() ?: 2025,
                         time = "",
                         city = yt.place,
-                        region = "United Kingdom",
-                        cc = "gb",
+                        region = if (isInUkRegion(yt.lat, yt.lon)) "United Kingdom" else "",
+                        cc = if (isInUkRegion(yt.lat, yt.lon)) "gb" else "",
                         country = yt.handle,
                         shape = "video",
                         duration = "",
@@ -550,7 +561,7 @@ object LiveTikTokFetcher {
                     .removePrefix("@")
                     .ifBlank { "tiktok" }
                 val rawTitle = cleanCaption(v.optString("title"))
-                    .ifBlank { "UK UFO/UAP sighting clip posted by @$handle." }
+                    .ifBlank { "UFO/UAP sighting clip posted by @$handle." }
                 val createTime = v.optLong("create_time", 0L)
                 val posted = if (createTime > 1_000_000_000L) {
                     val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
@@ -561,7 +572,7 @@ object LiveTikTokFetcher {
                     snowflakeDate(clipId)
                 }
 
-                val matched = inferUkPlace("$rawTitle $handle")
+                val matched = inferPlace("$rawTitle $handle")
                 val place = matched?.first ?: q.fallbackPlace
                 val coords = jitterCoords(
                     matched?.second?.first ?: q.lat,
@@ -594,8 +605,8 @@ object LiveTikTokFetcher {
                     val oembed = fetchTikTokOembed("https://www.tiktok.com/@$rawHandle/video/$clipId")
                     val handle = oembed?.optString("author_unique_id")?.removePrefix("@")?.ifBlank { rawHandle } ?: rawHandle
                     val title = cleanCaption(oembed?.optString("title").orEmpty())
-                        .ifBlank { "UK UFO/UAP sighting clip posted by @$handle." }
-                    val matched = inferUkPlace("$title $handle")
+                        .ifBlank { "UFO/UAP sighting clip posted by @$handle." }
+                    val matched = inferPlace("$title $handle")
                     val place = matched?.first ?: q.fallbackPlace
                     val coords = jitterCoords(
                         matched?.second?.first ?: q.lat,
@@ -638,7 +649,7 @@ object LiveTikTokFetcher {
         val localSeen = HashSet(seen)
 
         for (i in 0 until 2) {
-            val q = YOUTUBE_UK_QUERIES[(pass * 2 + i) % YOUTUBE_UK_QUERIES.size]
+            val q = YOUTUBE_QUERIES[(pass * 2 + i) % YOUTUBE_QUERIES.size]
             val ytUrl = "https://www.youtube.com/results?search_query=" +
                 URLEncoder.encode(q.keyword, "UTF-8") + "&sp=EgIQAQ%253D%253D"
             val html = httpGet(ytUrl) ?: continue
@@ -649,10 +660,10 @@ object LiveTikTokFetcher {
                 if (!localSeen.add(videoId)) continue
                 val oembed = fetchYoutubeOembed(videoId) ?: continue
                 val title = oembed.optString("title").trim()
-                val author = oembed.optString("author_name").trim().ifBlank { "YouTube UK" }
+                val author = oembed.optString("author_name").trim().ifBlank { "YouTube" }
                 if (title.isEmpty() || !UFO_SUBSTRING_REGEX.containsMatchIn("$title $author")) continue
 
-                val matched = inferUkPlace("$title $author")
+                val matched = inferPlace("$title $author")
                 val place = matched?.first ?: q.fallbackPlace
                 val coords = jitterCoords(
                     matched?.second?.first ?: q.lat,
@@ -695,6 +706,7 @@ object LiveTikTokFetcher {
      */
     @SuppressLint("SetJavaScriptEnabled")
     private fun fetchViaWebView(context: Context, url: String): String? {
+        if (runCatching { CookieManager.getInstance() }.getOrNull() == null) return null
         val latch = CountDownLatch(1)
         val resultRef = AtomicReference<String?>(null)
 
@@ -756,8 +768,8 @@ object LiveTikTokFetcher {
         val dist = (((h ushr 16) and 0xFF) / 255.0) * spreadDeg
         val dLat = sin(angle) * dist
         val dLon = cos(angle) * dist * 1.4
-        val rLat = ((lat + dLat).coerceIn(50.1, 58.5) * 1000.0).roundToInt() / 1000.0
-        val rLon = ((lon + dLon).coerceIn(-6.0, 1.6) * 1000.0).roundToInt() / 1000.0
+        val rLat = ((lat + dLat).coerceIn(-89.0, 89.0) * 1000.0).roundToInt() / 1000.0
+        val rLon = (((lon + dLon + 540.0) % 360.0 - 180.0) * 1000.0).roundToInt() / 1000.0
         return rLat to rLon
     }
 
@@ -769,7 +781,7 @@ object LiveTikTokFetcher {
         return if (trimmed.length > 220) trimmed.take(217) + "…" else trimmed
     }
 
-    private fun inferUkPlace(text: String): Pair<String, Pair<Double, Double>>? {
+    private fun inferPlace(text: String): Pair<String, Pair<Double, Double>>? {
         val lower = text.lowercase(Locale.US)
         for ((key, entry) in UK_GAZETTEER) {
             if (lower.contains(key)) {
