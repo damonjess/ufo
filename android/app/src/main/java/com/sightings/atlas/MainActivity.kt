@@ -950,32 +950,58 @@ class MainActivity : AppCompatActivity() {
 
     private fun triggerUkTikTokFetch(force: Boolean = false) {
         val data = dataset ?: return
+        if (force && LiveTikTokFetcher.isScanning) {
+            Toast.makeText(this, "SIGINT: Deep scan already running…", Toast.LENGTH_SHORT).show()
+            return
+        }
         val now = SystemClock.uptimeMillis()
         if (!force && now - lastUkFetchAt < 30_000L) return
         lastUkFetchAt = now
         if (force) {
-            Toast.makeText(this, "Scanning worldwide TikTok & YouTube feeds…", Toast.LENGTH_SHORT).show()
+            viewReadout.scrambleText("[SIGINT] DEEP SCAN // PULLING TIKTOK & YOUTUBE FEEDS...", 220L)
+            Toast.makeText(this, "SIGINT: Scanning 100s of TikTok & YouTube videos…", Toast.LENGTH_SHORT).show()
         }
         val existingIds = (data.videos.mapNotNull { it.video?.id } + data.social.mapNotNull { it.video?.id }).toSet()
-        LiveTikTokFetcher.fetchUkClipsAsync(this, existingIds, force = force) { newClips ->
-            runOnUiThread {
-                val cur = dataset ?: return@runOnUiThread
-                val known = (cur.videos.mapNotNull { it.video?.id } + cur.social.mapNotNull { it.video?.id }).toHashSet()
-                var addedVideos = 0
-                var addedTikToks = 0
-                for (clip in newClips) {
-                    val vid = clip.video ?: continue
-                    if (known.add(vid.id)) {
-                        if (vid.isTikTok) {
-                            cur.social.add(clip)
-                            addedTikToks++
-                        } else {
-                            cur.videos.add(clip)
-                            addedVideos++
-                        }
+        var addedVideos = 0
+        var addedTikToks = 0
+        var lastUiRefreshAt = 0L
+
+        fun mergeClips(clips: List<Sighting>, isFinal: Boolean) {
+            val cur = dataset ?: return
+            val known = (cur.videos.mapNotNull { it.video?.id } + cur.social.mapNotNull { it.video?.id }).toHashSet()
+            var batchAdded = 0
+            for (clip in clips) {
+                val vid = clip.video ?: continue
+                if (known.add(vid.id)) {
+                    if (yearEnd >= cur.maxYear && clip.year > yearEnd) {
+                        yearEnd = clip.year
                     }
+                    if (vid.isTikTok) {
+                        cur.social.add(clip)
+                        addedTikToks++
+                    } else {
+                        cur.videos.add(clip)
+                        addedVideos++
+                    }
+                    batchAdded++
                 }
-                if (addedVideos + addedTikToks > 0) {
+            }
+            val nowUi = SystemClock.uptimeMillis()
+            if (batchAdded > 0 && (isFinal || nowUi - lastUiRefreshAt >= 650L)) {
+                lastUiRefreshAt = nowUi
+                val cmp = compareByDescending<Sighting> { it.date }.thenByDescending { it.id }
+                cur.videos.sortWith(cmp)
+                cur.social.sortWith(cmp)
+                AtlasRepository.cache(cur)
+                updateTabLabels(cur)
+                refresh(updateGlobePins = true)
+                if (force && !isFinal) {
+                    viewReadout.text = "[SIGINT] HARVESTING // +$addedTikToks TIKTOK · +$addedVideos YT"
+                }
+            }
+            if (isFinal) {
+                val total = addedTikToks + addedVideos
+                if (total > 0) {
                     val cmp = compareByDescending<Sighting> { it.date }.thenByDescending { it.id }
                     cur.videos.sortWith(cmp)
                     cur.social.sortWith(cmp)
@@ -983,16 +1009,40 @@ class MainActivity : AppCompatActivity() {
                     updateTabLabels(cur)
                     refresh(updateGlobePins = true)
                     CyberSfx.confirm()
+                    if (force) {
+                        viewReadout.scrambleText(
+                            "[SIGINT] +$addedTikToks TIKTOK · +$addedVideos YT PLOTTED",
+                            220L,
+                        )
+                    }
                     Toast.makeText(
                         this,
-                        "SIGINT: +$addedTikToks TikToks, +$addedVideos Videos plotted",
-                        Toast.LENGTH_SHORT,
+                        "SIGINT: +$addedTikToks TikToks, +$addedVideos YouTube plotted ($total new)",
+                        Toast.LENGTH_LONG,
                     ).show()
                 } else if (force) {
-                    Toast.makeText(this, "SIGINT: No new clips in this pass — tap Scan again for next sector", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        this,
+                        "SIGINT: No new clips in this sector — tap Scan again for next wave",
+                        Toast.LENGTH_SHORT,
+                    ).show()
                 }
             }
         }
+
+        LiveTikTokFetcher.fetchUkClipsAsync(
+            context = this,
+            existingIds = existingIds,
+            force = force,
+            onBatch = if (force) { batch ->
+                runOnUiThread { mergeClips(batch, isFinal = false) }
+            } else {
+                null
+            },
+            onNewClips = { allClips ->
+                runOnUiThread { mergeClips(allClips, isFinal = true) }
+            },
+        )
     }
 
     private fun onSightingClick(sighting: Sighting) {
@@ -1777,7 +1827,11 @@ class MainActivity : AppCompatActivity() {
             "📁  Case Files & Dossiers (${caseStore.allSavedIds().size} saved)",
             "⌖  ${if (areaSearchActive) "Disable Radar Area Lock" else "Lock Radar to Crosshair (${areaRadiusKm.toInt()} km)"}",
             "📡  ${if (nearLat.isFinite()) "Step / Clear GPS Radar (${nearRadiusKm.toInt()} km)" else "GPS Near-Me Scan"}",
-            "📡  Scan UK Live Feeds (TikTok / oEmbed)",
+            if (LiveTikTokFetcher.isScanning) {
+                "📡  Scanning Live Feeds… (in progress)"
+            } else {
+                "📡  Scan Live Feeds (100s of TikTok & YouTube)"
+            },
             "🔥  ${if (globe.heatMode) "Disable Thermal Density Grid" else "Enable Thermal Density Grid"}",
             "📅  ${if (onThisDay) "Clear On-This-Day Filter ($todayKey)" else "Filter: On This Day ($todayKey)"}",
             "⚡  Acquire Random Target",
